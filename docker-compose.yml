@@ -1,15 +1,55 @@
 services:
   postgres:
     image: postgres:16
+    restart: always
     environment:
       POSTGRES_USER: fccpd
       POSTGRES_PASSWORD: fccpd
       POSTGRES_DB: fccpd_db
     ports:
       - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U fccpd -d fccpd_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
 
   redis:
     image: redis:7
+    restart: always
     command: redis-server --appendonly yes
     ports:
       - "6379:6379"
+    volumes:
+      - redisdata:/data
+
+  api:
+    build: .
+    restart: always
+    env_file: .env
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./app:/code/app
+
+  worker:
+    build: .
+    restart: always
+    env_file: .env
+    depends_on:
+      - redis
+      - postgres
+    command: ["python", "-m", "app.worker"]
+    volumes:
+      - ./app:/code/app
+
+volumes:
+  pgdata:
+  redisdata:
