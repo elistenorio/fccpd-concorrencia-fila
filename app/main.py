@@ -2,6 +2,7 @@ from fastapi import FastAPI, HTTPException, Depends
 from sqlalchemy.orm import Session
 from app.database import engine, get_db, Base
 from app.models import Produto, Pedido
+from app.schemas import PedidoCreate, PedidoResponse
 
 Base.metadata.create_all(bind=engine)
 
@@ -12,11 +13,11 @@ def health():
     return {"status": "ok"}
 
 
-@app.post("/orders")
-def criar_pedido(produto_id: int, db: Session = Depends(get_db)):
+@app.post("/orders", response_model=PedidoResponse)
+def criar_pedido(pedido_in: PedidoCreate, db: Session = Depends(get_db)):
     produto = (
         db.query(Produto)
-        .filter(Produto.id == produto_id)
+        .filter(Produto.id == pedido_in.produto_id)
         .with_for_update()
         .first()
     )
@@ -33,4 +34,8 @@ def criar_pedido(produto_id: int, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(pedido)
 
-    return {"pedido_id": pedido.id, "estoque_restante": produto.estoque}
+    return PedidoResponse(
+        pedido_id=pedido.id,
+        produto_id=produto.id,
+        mensagem="Pedido confirmado com sucesso",
+    )
