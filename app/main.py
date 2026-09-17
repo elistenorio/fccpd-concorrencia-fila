@@ -2,7 +2,9 @@ from fastapi import FastAPI, HTTPException, Depends
 from sqlalchemy.orm import Session
 from app.database import engine, get_db, Base
 from app.models import Produto, Pedido
-from app.schemas import PedidoCreate, PedidoResponse
+from app.queue import fila_pedidos
+from app.schemas import PedidoCreate, PedidoResponse, PedidoStatusResponse
+from app.tasks import processar_pedido
 
 Base.metadata.create_all(bind=engine)
 
@@ -42,8 +44,19 @@ def criar_pedido(pedido_in: PedidoCreate, db: Session = Depends(get_db)):
     db.commit() # Libera o lock e efetiva a compra
     db.refresh(pedido)
 
+    fila_pedidos.enqueue(processar_pedido, pedido.id)
+
     return PedidoResponse(
         pedido_id=pedido.id,
         produto_id=produto.id,
         mensagem="Pedido criado com sucesso",
+        status=pedido.status,
     )
+
+
+@app.get("/pedidos/{pedido_id}", response_model=PedidoStatusResponse)
+def consultar_pedido(pedido_id: int, db: Session = Depends(get_db)):
+    pedido = db.query(Pedido).filter(Pedido.id == pedido_id).first()
+    if pedido is None:
+        raise HTTPException(status_code=404, detail="Pedido não encontrado")
+    return PedidoStatusResponse(pedido_id=pedido.id, status=pedido.status)

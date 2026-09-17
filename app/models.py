@@ -17,3 +17,4 @@ class Pedido(Base):
     id = Column(Integer, primary_key=True, index=True)
     produto_id = Column(Integer, ForeignKey("produtos.id"), nullable=False)
     criado_em = Column(DateTime(timezone=True), server_default=func.now())
+    status = Column(String, nullable=False, default="pendente")
