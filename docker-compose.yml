@@ -49,6 +49,8 @@ services:
     command: ["python", "-m", "app.worker"]
     volumes:
       - ./app:/code/app
+    deploy:
+      replicas: 3
 
 volumes:
   pgdata:
