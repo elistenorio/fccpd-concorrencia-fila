@@ -142,7 +142,9 @@ O script:
 
 ### Relatório de teste (evidência — Critérios 3 e 4)
 
+```
 [OK] 5 pedidos criados, todos processados pelo worker em até 15s.
+```
 
 Os 5 pedidos foram criados com `status="pendente"` e, com 3 workers RQ
 consumindo a fila em paralelo, todos foram processados e migraram para
@@ -171,4 +173,14 @@ optamos por rodar as verificações de estado do banco via `docker compose exec
 postgres psql`, o que eliminou o problema por completo.
 
 Na implementação da fila, a IA também errou de início: ao adicionar o campo
-`status` na resposta do `POST /pedidos`, a
+`status` na resposta do `POST /pedidos`, a sugestão inicial só criou o novo
+schema `PedidoStatusResponse` (para o `GET /pedidos/{id}`) mas esqueceu de
+adicionar o campo `status` no `PedidoResponse` já existente. O código rodava
+sem erro, só que a resposta da criação do pedido vinha sem o campo — o Pydantic
+descarta silenciosamente valores que não estão declarados no schema. Também
+identificamos, ao rodar o `test_fila.py` pela primeira vez, que o timeout
+inicial de 15s era curto demais para 5 pedidos processados sequencialmente por
+um único worker (cada um simula 3s de trabalho); em vez de só aumentar o
+timeout, optamos por escalar para 3 workers em paralelo (`--scale worker=3`),
+o que também deixou mais evidente a capacidade da fila de escalar
+horizontalmente.
