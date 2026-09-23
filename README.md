@@ -259,11 +259,6 @@ Com os containers de pé, no host:
 python gerar_evidencias.py
 ```
 
-O resumo fica em `evidencias/RESUMO.md`. Para entregar, faça o commit do
-código, gere as evidências e depois faça o commit da pasta `evidencias/`,
-assim ela aponta para o commit exato que foi testado. Se houver alterações não
-commitadas na hora da geração, o `RESUMO.md` avisa.
-
 ## Declaração de uso de Inteligência Artificial (Critério 6)
 
 Usamos o **Claude** (Anthropic) para revisar o código do endpoint de pedidos,
