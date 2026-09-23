@@ -1,22 +1,36 @@
-from fastapi import FastAPI, HTTPException, Depends
+import logging
+
+from fastapi import BackgroundTasks, FastAPI, HTTPException, Depends
 from sqlalchemy.orm import Session
 from app.database import engine, get_db, Base
 from app.models import Produto, Pedido
-from app.queue import fila_pedidos
+from app.queue import tentar_publicar_pedido
 from app.schemas import PedidoCreate, PedidoResponse, PedidoStatusResponse
-from app.tasks import processar_pedido
 
 Base.metadata.create_all(bind=engine)
 
 app = FastAPI()
+logger = logging.getLogger("uvicorn.error")
 
 @app.get("/")
 def health():
     return {"status": "ok"}
 
 
+def publicar_na_fila(pedido_id: int):
+    if not tentar_publicar_pedido(pedido_id):
+        logger.warning(
+            "Fila indisponível: pedido %s fica pendente até o reconciliador publicá-lo",
+            pedido_id,
+        )
+
+
 @app.post("/pedidos", response_model=PedidoResponse, status_code=201)
-def criar_pedido(pedido_in: PedidoCreate, db: Session = Depends(get_db)):
+def criar_pedido(
+    pedido_in: PedidoCreate,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db),
+):
 
     # O with_for_update() aplica um lock pessimista na linha do produto.
     # Isso impede que duas transações simultâneas leiam o mesmo estoque
@@ -44,7 +58,11 @@ def criar_pedido(pedido_in: PedidoCreate, db: Session = Depends(get_db)):
     db.commit() # Libera o lock e efetiva a compra
     db.refresh(pedido)
 
-    fila_pedidos.enqueue(processar_pedido, pedido.id)
+    # A compra já está efetivada no banco, então a fila não pode atrasá-la nem
+    # derrubá-la: a publicação roda depois que a resposta é enviada. Se o Redis
+    # estiver fora, o pedido fica "pendente" e o reconciliador o publica quando
+    # a fila voltar (o banco é a fonte da verdade, nenhum pedido se perde).
+    background_tasks.add_task(publicar_na_fila, pedido.id)
 
     return PedidoResponse(
         pedido_id=pedido.id,

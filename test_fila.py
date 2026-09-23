@@ -1,4 +1,5 @@
 import os
+import statistics
 import time
 import httpx
 import psycopg2
@@ -7,6 +8,8 @@ API_URL = "http://localhost:8000"
 PRODUTO_ID = 1
 QTD_PEDIDOS = 5
 TIMEOUT_SEGUNDOS = 30
+DURACAO_JOB_MS = 3000  # o worker simula 3 s de trabalho por pedido (app/tasks.py)
+LIMITE_LATENCIA_MS = 500  # a compra tem que responder bem antes do job terminar
 
 DATABASE_URL = os.getenv("DATABASE_URL")
 
@@ -44,15 +47,22 @@ def test_fila_processa_pedidos_assincronamente():
     resetar_produto()
 
     pedido_ids = []
+    latencias_ms = []
     for _ in range(QTD_PEDIDOS):
+        inicio_req = time.perf_counter()
         resposta = httpx.post(f"{API_URL}/pedidos", json={"produto_id": PRODUTO_ID})
+        latencias_ms.append((time.perf_counter() - inicio_req) * 1000)
         assert resposta.status_code == 201, f"Falha ao criar pedido: {resposta.text}"
+        # A resposta já sai "pendente": a API não esperou o worker processar.
+        assert resposta.json()["status"] == "pendente", (
+            f"Pedido respondeu com status {resposta.json()['status']!r} — "
+            "o processamento parece estar acontecendo de forma síncrona, não pela fila."
+        )
         pedido_ids.append(resposta.json()["pedido_id"])
 
-    pendentes_no_inicio = contar_status("pendente")
-    assert pendentes_no_inicio > 0, (
-        "Nenhum pedido ficou 'pendente' após a criação — "
-        "o processamento parece estar acontecendo de forma síncrona, não pela fila."
+    assert max(latencias_ms) < LIMITE_LATENCIA_MS, (
+        f"A compra mais lenta levou {max(latencias_ms):.0f} ms: a API está esperando o "
+        "trabalho pesado em vez de deixá-lo para a fila."
     )
 
     inicio = time.time()
@@ -60,6 +70,7 @@ def test_fila_processa_pedidos_assincronamente():
         if contar_status("processado") == QTD_PEDIDOS:
             break
         time.sleep(1)
+    tempo_total = time.time() - inicio
 
     processados = contar_status("processado")
     assert processados == QTD_PEDIDOS, (
@@ -67,9 +78,17 @@ def test_fila_processa_pedidos_assincronamente():
         f"mas só {processados} foram. O worker pode não estar consumindo a fila."
     )
 
+    print("=== RELATÓRIO DE TESTE DA FILA ===")
+    print(f"Pedidos criados: {QTD_PEDIDOS} (todos responderam 201 com status 'pendente')")
+    print(
+        f"Latência do POST /pedidos: mín {min(latencias_ms):.0f} ms | "
+        f"mediana {statistics.median(latencias_ms):.0f} ms | máx {max(latencias_ms):.0f} ms "
+        f"(cada job leva {DURACAO_JOB_MS} ms)"
+    )
+    print(f"Todos processados pelos workers em {tempo_total:.1f}s (limite: {TIMEOUT_SEGUNDOS}s)")
     print(
         f"\n[OK] {QTD_PEDIDOS} pedidos criados, todos processados pelo worker "
-        f"em até {TIMEOUT_SEGUNDOS}s."
+        f"em até {TIMEOUT_SEGUNDOS}s, sem a compra esperar pelo processamento."
     )
 
 
