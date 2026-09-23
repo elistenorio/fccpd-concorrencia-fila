@@ -1,0 +1,6 @@
+=== RELATÓRIO DE TESTE DA FILA ===
+Pedidos criados: 5 (todos responderam 201 com status 'pendente')
+Latência do POST /pedidos: mín 16 ms | mediana 16 ms | máx 22 ms (cada job leva 3000 ms)
+Todos processados pelos workers em 13.7s (limite: 30s)
+
+[OK] 5 pedidos criados, todos processados pelo worker em até 30s, sem a compra esperar pelo processamento.

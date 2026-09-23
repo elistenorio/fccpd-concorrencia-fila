@@ -1,0 +1,49 @@
+LINHA DO TEMPO DO TESTE DE RESILIÊNCIA (extraída dos logs dos containers)
+Pedidos criados com o Redis fora: 315, 316, 317, 318, 319
+Horários no fuso local.
+
+Como ler:
+- redis "Received SIGTERM"               -> o teste desligou o Redis
+- api "POST /pedidos -> 201 Created"      -> uma compra feita e respondida com o Redis fora
+- api "Fila indisponível: pedido N"       -> a API desistiu de publicar o job desse pedido; ele
+                                             fica "pendente" para o reconciliador
+- worker "Could not connect to Redis"     -> os workers perderam a fila e tentam reconectar
+- redis "Ready to accept connections"     -> o teste religou o Redis
+- reconciliador "republicados na fila"    -> pedidos órfãos devolvidos à fila
+- worker "processar_pedido(N)" / "Job OK" -> o pedido foi processado
+
+A API publica o job depois de responder, e o aviso "Fila indisponível" só sai
+quando essa tentativa termina. Como a busca DNS do host "redis" leva alguns
+segundos, o aviso pode aparecer depois de o Redis já ter voltado; as compras em
+si (POST) aconteceram com o Redis fora. Pedidos sem esse aviso foram publicados
+pela própria API, porque a tentativa dela terminou com o Redis já de volta.
+
+23:29:11.856  redis-1          Received SIGTERM scheduling shutdown...
+23:29:11.960  worker-3         Could not connect to Redis instance: Connection closed by server. Retrying in 1 seconds...
+23:29:11.960  worker-2         Could not connect to Redis instance: Connection closed by server. Retrying in 1 seconds...
+23:29:11.960  worker-1         Could not connect to Redis instance: Connection closed by server. Retrying in 1 seconds...
+23:29:12.300  api-1            POST /pedidos -> 201 Created
+23:29:12.341  api-1            POST /pedidos -> 201 Created
+23:29:12.381  api-1            POST /pedidos -> 201 Created
+23:29:12.447  api-1            POST /pedidos -> 201 Created
+23:29:12.511  api-1            POST /pedidos -> 201 Created
+23:29:13.880  redis-1          Ready to accept connections tcp
+23:29:16.255  api-1            WARNING: Fila indisponível: pedido 315 fica pendente até o reconciliador publicá-lo
+23:29:16.272  api-1            WARNING: Fila indisponível: pedido 316 fica pendente até o reconciliador publicá-lo
+23:29:16.301  api-1            WARNING: Fila indisponível: pedido 317 fica pendente até o reconciliador publicá-lo
+23:29:16.361  api-1            WARNING: Fila indisponível: pedido 318 fica pendente até o reconciliador publicá-lo
+23:29:16.465  api-1            WARNING: Fila indisponível: pedido 319 fica pendente até o reconciliador publicá-lo
+23:29:16.890  worker-3         Could not connect to Redis instance: Error -2 connecting to redis:6379. Name or service not known. Retrying in 2 seconds...
+23:29:16.890  worker-1         Could not connect to Redis instance: Error -2 connecting to redis:6379. Name or service not known. Retrying in 2 seconds...
+23:29:16.906  worker-2         Could not connect to Redis instance: Error -2 connecting to redis:6379. Name or service not known. Retrying in 2 seconds...
+23:29:24.943  worker-3         pedidos: app.tasks.processar_pedido(315) (pedido-315)
+23:29:24.944  worker-1         pedidos: app.tasks.processar_pedido(316) (pedido-316)
+23:29:24.946  worker-2         pedidos: app.tasks.processar_pedido(317) (pedido-317)
+23:29:24.948  reconciliador-1  Pedidos sem job republicados na fila: [315, 316, 317, 318, 319]
+23:29:28.880  worker-3         pedidos: Job OK (pedido-315)
+23:29:28.884  worker-1         pedidos: Job OK (pedido-316)
+23:29:28.885  worker-2         pedidos: Job OK (pedido-317)
+23:29:28.886  worker-3         pedidos: app.tasks.processar_pedido(318) (pedido-318)
+23:29:28.891  worker-2         pedidos: app.tasks.processar_pedido(319) (pedido-319)
+23:29:32.145  worker-2         pedidos: Job OK (pedido-319)
+23:29:32.149  worker-3         pedidos: Job OK (pedido-318)

@@ -1,0 +1,13 @@
+=== RELATÓRIO DE TESTE DE RESILIÊNCIA (REDIS FORA DO AR) ===
+Compras feitas com o Redis desligado: 5
+
+--- COM O REDIS FORA ---
+Respostas 201 Created: 5 | Outras: []
+Latência do POST /pedidos: mediana 52 ms | máx 70 ms
+Pedidos 'pendente' no PostgreSQL: 5
+Estoque no PostgreSQL: 10 -> 5
+
+--- DEPOIS DE RELIGAR O REDIS ---
+Pedidos 'processado': 5 de 5 em 18.3s (republicados pelo reconciliador)
+
+✅ VEREDITO: Com o Redis fora, a loja continuou vendendo e nenhum pedido se perdeu.

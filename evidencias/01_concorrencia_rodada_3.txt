@@ -1,0 +1,21 @@
+=== CONTROLE NEGATIVO: MESMO ATAQUE CONTRA A API SEM LOCK ===
+Sucessos (201 Created): 44 | Conflitos (409): 6 | Outros: 0
+Estoque Final no PostgreSQL: 0
+Pedidos Criados no PostgreSQL: 44
+-> Sem o lock: 34 unidade(s) vendida(s) além do estoque e 34 baixa(s) de estoque perdida(s) (lost update).
+-> O teste DETECTA a condição de corrida quando o lock é removido.
+
+=== RELATÓRIO DE TESTE DE CONCORRÊNCIA ===
+Estoque Inicial: 10
+Requisições Simultâneas: 50
+
+--- RESULTADOS HTTP ---
+Sucessos (201 Created): 10
+Conflitos (409 Conflict): 40
+Erros Inesperados: 0
+
+--- VERIFICAÇÃO NO BANCO DE DADOS ---
+Estoque Final no PostgreSQL: 0
+Pedidos Criados no PostgreSQL: 10
+
+✅ VEREDITO: O sistema manteve a consistência sob alta concorrência. Zero erros.
