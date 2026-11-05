@@ -2,12 +2,12 @@ import logging
 
 from fastapi import BackgroundTasks, FastAPI, HTTPException, Depends
 from sqlalchemy.orm import Session
-from app.database import engine, get_db, Base
-from app.models import Produto, Pedido
+from app.database import engine, get_db
+from app.models import Produto, Pedido, criar_e_migrar
 from app.queue import tentar_publicar_pedido
 from app.schemas import PedidoCreate, PedidoResponse, PedidoStatusResponse
 
-Base.metadata.create_all(bind=engine)
+criar_e_migrar(engine)
 
 app = FastAPI()
 logger = logging.getLogger("uvicorn.error")
@@ -53,7 +53,7 @@ def criar_pedido(
 
     produto.estoque -= 1
 
-    pedido = Pedido(produto_id=produto.id)
+    pedido = Pedido(produto_id=produto.id, cliente_id=pedido_in.cliente_id)
     db.add(pedido)
     db.commit() # Libera o lock e efetiva a compra
     db.refresh(pedido)

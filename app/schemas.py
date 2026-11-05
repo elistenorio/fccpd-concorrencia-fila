@@ -3,6 +3,7 @@ from pydantic import BaseModel
 
 class PedidoCreate(BaseModel):
     produto_id: int
+    cliente_id: int | None = None
 
 
 class PedidoResponse(BaseModel):
