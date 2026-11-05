@@ -10,7 +10,7 @@ consulta de recomendações é só uma leitura de tabela pré-calculada.
 import logging
 import threading
 
-from fastapi import Depends, FastAPI, HTTPException, Query
+from fastapi import Depends, FastAPI, Header, HTTPException, Query
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -40,7 +40,12 @@ def health():
 
 
 @app.get("/recomendacoes/{produto_id}")
-def consultar(produto_id: int, limite: int = Query(5, ge=1, le=10), db: Session = Depends(get_db)):
+def consultar(
+    produto_id: int,
+    limite: int = Query(5, ge=1, le=10),
+    x_request_id: str = Header("-"),
+    db: Session = Depends(get_db),
+):
     if db.get(Produto, produto_id) is None:
         raise HTTPException(status_code=404, detail="Produto não encontrado")
     linhas = db.execute(
@@ -50,7 +55,7 @@ def consultar(produto_id: int, limite: int = Query(5, ge=1, le=10), db: Session 
         .order_by(Recomendacao.posicao)
         .limit(limite)
     ).all()
-    logger.info("Consulta de recomendações do produto %s: %s encontradas", produto_id, len(linhas))
+    logger.info("[%s] Consulta de recomendações do produto %s: %s encontradas", x_request_id, produto_id, len(linhas))
     return {
         "produto_id": produto_id,
         "recomendacoes": [
