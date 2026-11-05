@@ -1,0 +1,3 @@
+# Scripts shell sempre com fim de linha LF: com CRLF (padrão do Git no Windows)
+# o bash do Linux falha com "$'\r': command not found".
+*.sh text eol=lf

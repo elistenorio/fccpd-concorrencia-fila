@@ -259,6 +259,24 @@ Com os containers de pé, no host:
 python gerar_evidencias.py
 ```
 
+## Monitor de processo — `scripts/monitor.sh` (PI3, Lab 09)
+
+Script Bash que mede CPU e memória (via `top`) e RSS, threads e estado (via
+`ps`) de um processo, grava as medições em CSV, registra alertas quando a CPU
+passa do limite e imprime um resumo no final. Roda em Linux.
+
+```bash
+./scripts/monitor.sh <PID|nome> [intervalo_s] [amostras] [limite_cpu]
+./scripts/monitor.sh postgres          # padrão: 1 s, 30 amostras, alerta acima de 80%
+./scripts/monitor.sh 1234 0.5 60 50
+```
+
+- Se o argumento não for numérico, o PID é descoberto com `pgrep -o`.
+- Gera `medicoes_<nome>_<data>.csv` (`timestamp,pid,cpu,mem,rss_kb,threads,estado`)
+  e acrescenta os alertas em `alertas.log`, ambos no diretório atual.
+- Para sozinho se o processo terminar; `Ctrl+C` também imprime o resumo
+  (amostras, CPU média e máxima, RSS médio, máximo de threads).
+
 ## Declaração de uso de Inteligência Artificial (Critério 6)
 
 Usamos o **Claude** (Anthropic) para revisar o código do endpoint de pedidos,
