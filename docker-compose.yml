@@ -38,6 +38,32 @@ services:
       - "8000:8000"
     volumes:
       - ./app:/code/app
+    # A api é dona do schema de produtos/pedidos (cria e migra ao subir); o
+    # healthy indica que isso terminou e libera quem depende dessas tabelas.
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/')"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  recomendacoes:
+    build: .
+    restart: always
+    env_file: .env
+    depends_on:
+      api:
+        condition: service_healthy
+    command: ["uvicorn", "recomendacoes.main:app", "--host", "0.0.0.0", "--port", "8001"]
+    environment:
+      # Nº de processos do recálculo. 4 = núcleos físicos da máquina do
+      # benchmark, a melhor configuração medida (ver README, U2).
+      RECOMENDACOES_WORKERS: "4"
+    ports:
+      - "8001:8001"
+    volumes:
+      - ./app:/code/app
+      - ./estruturas:/code/estruturas
+      - ./recomendacoes:/code/recomendacoes
 
   worker:
     build: .

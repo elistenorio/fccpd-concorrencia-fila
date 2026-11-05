@@ -1,13 +1,20 @@
 import logging
+import uuid
 
-from fastapi import BackgroundTasks, FastAPI, HTTPException, Depends
+from fastapi import BackgroundTasks, FastAPI, HTTPException, Depends, Query, Response
 from sqlalchemy.orm import Session
-from app.database import engine, get_db, Base
-from app.models import Produto, Pedido
+from app.database import engine, get_db
+from app.models import Produto, Pedido, criar_e_migrar
 from app.queue import tentar_publicar_pedido
-from app.schemas import PedidoCreate, PedidoResponse, PedidoStatusResponse
+from app.recomendacoes_cliente import buscar_recomendacoes
+from app.schemas import (
+    PedidoCreate,
+    PedidoResponse,
+    PedidoStatusResponse,
+    ProdutoResponse,
+)
 
-Base.metadata.create_all(bind=engine)
+criar_e_migrar(engine)
 
 app = FastAPI()
 logger = logging.getLogger("uvicorn.error")
@@ -53,7 +60,7 @@ def criar_pedido(
 
     produto.estoque -= 1
 
-    pedido = Pedido(produto_id=produto.id)
+    pedido = Pedido(produto_id=produto.id, cliente_id=pedido_in.cliente_id)
     db.add(pedido)
     db.commit() # Libera o lock e efetiva a compra
     db.refresh(pedido)
@@ -69,6 +76,34 @@ def criar_pedido(
         produto_id=produto.id,
         mensagem="Pedido criado com sucesso",
         status=pedido.status,
+    )
+
+
+@app.get("/produtos/{produto_id}", response_model=ProdutoResponse)
+def consultar_produto(
+    produto_id: int,
+    response: Response,
+    limite: int = Query(5, ge=1, le=10),
+    db: Session = Depends(get_db),
+):
+    produto = db.get(Produto, produto_id)
+    if produto is None:
+        raise HTTPException(status_code=404, detail="Produto não encontrado")
+
+    # Id curto que viaja no header X-Request-ID e aparece no log dos dois
+    # serviços, ligando a chamada da api à resposta das recomendações.
+    request_id = uuid.uuid4().hex[:8]
+    response.headers["X-Request-ID"] = request_id
+    recomendacoes = buscar_recomendacoes(produto_id, limite, request_id)
+
+    return ProdutoResponse(
+        id=produto.id,
+        nome=produto.nome,
+        estoque=produto.estoque,
+        categoria=produto.categoria,
+        artesao=produto.artesao,
+        recomendacoes_disponiveis=recomendacoes is not None,
+        recomendacoes=recomendacoes or [],
     )
 
 
