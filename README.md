@@ -1,15 +1,32 @@
 # Origem
 
-Backend do marketplace de artesanato Origem, desenvolvido para a disciplina FCCPD. Este repositório cobre o fluxo de compra com controle de concorrência e consistência de estoque (critérios 1 e 2 da rubrica) e a fila assíncrona de processamento de pedidos (critérios 3 e 4).
+Backend do marketplace de artesanato Origem. Este repositório é o projeto
+integrado de três disciplinas: começou na FCCPD (fluxo de compra com controle
+de concorrência e consistência de estoque, mais a fila assíncrona de
+processamento de pedidos) e é também o app monitorado no Projeto Integrador 3
+(AED e Infraestrutura de Software).
 
-## Equipe
+## Equipe e disciplinas
 
-- Aguinaldo Neto (@netokemon)
-- Caliel Feijó (@poeisie)
-- Elis Tenório (@elistenorio)
-- Eulália Albuquerque (@eulalialbuquerque)
-- Giulia Ferreira (@giumari18)
-- Sarah Cyrne (@sarahcyrne)
+| Integrante | FCCPD | AED + Infraestrutura de Software (PI3) |
+|---|:---:|:---:|
+| Aguinaldo Neto (@netokemon) | ✅ | |
+| Caliel Feijó (@poeisie) | ✅ | ✅ |
+| Elis Tenório (@elistenorio) | ✅ | |
+| Eulália Albuquerque (@eulalialbuquerque) | ✅ | ✅ |
+| Giulia Ferreira (@giumari18) | ✅ | ✅ |
+| Sarah Cyrne (@sarahcyrne) | ✅ | |
+
+O que cada disciplina avalia neste repositório:
+
+| Disciplina | Onde está |
+|---|---|
+| FCCPD | `app/` (API, fila, worker, reconciliador), `test_concorrencia.py`, `test_fila.py`, `test_resiliencia.py`, `evidencias/` |
+| AED (PI3) | `estruturas/` (estruturas de dados, ordenação e busca próprias) e `tests/` |
+| Infraestrutura de Software (PI3) | `concorrencia/` (produtor-consumidor e condição de corrida), `scripts/monitor.sh`, Docker/Compose |
+
+Os detalhes do PI3 (stack, mapa de técnicas e como rodar) estão em
+[PI3 — AED e Infraestrutura de Software](#pi3--aed-e-infraestrutura-de-software).
 
 ## Stack
 
@@ -17,6 +34,7 @@ Backend do marketplace de artesanato Origem, desenvolvido para a disciplina FCCP
 - **Banco**: PostgreSQL 16
 - **Fila/broker**: Redis + RQ
 - **Orquestração local**: Docker Compose
+- **Testes unitários**: pytest
 
 ## Como rodar
 
@@ -259,7 +277,72 @@ Com os containers de pé, no host:
 python gerar_evidencias.py
 ```
 
-## Monitor de processo — `scripts/monitor.sh` (PI3, Lab 09)
+## PI3 — AED e Infraestrutura de Software
+
+### Stack e justificativa
+
+Mantivemos **Python 3.12** porque o app monitorado (este backend) já é Python, e
+a linguagem atende às quatro exigências do PI3:
+
+| Exigência do PI3 | Como o Python atende |
+|---|---|
+| Estruturas, ordenação e busca próprias | Classes com nós encadeados e um bloco de tamanho fixo `[None] * n` como array. Nas partes avaliadas não usamos `list.append/pop/sort`, `dict`, `set`, `deque`, `sorted` nem `bisect` |
+| Threads e primitivas de sincronização | Módulo `threading` (`Thread`, `Lock`, `Condition`) |
+| Comandos do SO ou leitura de `/proc` | `subprocess` e leitura direta de arquivos em `/proc`; o Lab 09 é em Bash (`top`, `ps`, `pgrep`) |
+| Rodar em container Linux e no CI | Imagem `python:3.12-slim` (já usada no Compose); testes com pytest, sem dependências externas, prontos para o GitHub Actions (próximo checkpoint) |
+
+**Limitação conhecida — o GIL:** no CPython só uma thread executa bytecode Python
+por vez. Isso não atrapalha o coletor do monitor, que passa a maior parte do
+tempo esperando I/O (ler `/proc`, chamar a API do Docker, fazer health checks),
+e durante a espera o GIL é liberado. Já para trabalho pesado de CPU (o cálculo
+de recomendações da FCCPD) usamos **processos** em vez de threads.
+
+### Mapa de técnicas
+
+| Técnica | Onde | Por quê | Complexidade | Status |
+|---|---|---|---|---|
+| Lista encadeada | `estruturas/lista.py`; usada em `estruturas/ordenacao.py` | Copiar uma entrada de tamanho desconhecido (até um gerador) em uma única passada | inserir no início/fim O(1); buscar O(n) | ✅ |
+| Pilha | `estruturas/pilha.py`; usada em `estruturas/arvore_busca.py` | Percorrer a árvore sem recursão, que estouraria no caso degenerado (altura = n) | empilhar/desempilhar O(1) | ✅ |
+| Fila | `estruturas/fila.py` | FIFO sem limite; timeline de eventos do monitor | enfileirar/desenfileirar O(1) | ✅ implementada; uso no monitor 🔜 |
+| Fila circular | `estruturas/fila_circular.py`; usada em `concorrencia/buffer.py` | Buffer do produtor-consumidor com memória fixa; no monitor, janela das últimas N amostras | todas as operações O(1); memória O(capacidade) | ✅ |
+| Tabela hash | `estruturas/tabela_hash.py` | Acesso por chave em O(1): estado por serviço/container no monitor, clientes por produto nas recomendações | O(1) médio, O(n) pior; redimensiona com fator de carga 0,75 | ✅ implementada; uso 🔜 |
+| Árvore binária de busca | `estruturas/arvore_busca.py` | Eventos ordenados por timestamp, com consulta por intervalo | O(h): ~O(log n) aleatório, O(n) degenerada | ✅ implementada; uso 🔜 |
+| Insertion / selection sort | `estruturas/ordenacao.py` | Base de comparação; insertion também é usado pelo quick sort em trechos com menos de 16 elementos | O(n²) (insertion: O(n) se quase ordenado) | ✅ |
+| Merge sort | `estruturas/ordenacao.py` | Top-K das recomendações por score: estável, então empates mantêm a ordem original | O(n log n) sempre; memória O(n) | ✅ implementado; uso 🔜 |
+| Quick sort | `estruturas/ordenacao.py` | Ordenar processos/containers por CPU ou memória no monitor; pivô mediana de três | O(n log n) médio; pilha O(log n) | ✅ implementado; uso 🔜 |
+| Busca sequencial / binária | `estruturas/busca.py` | Sequencial em dados não ordenados; binária para achar amostras por timestamp no histórico ordenado | O(n) / O(log n) | ✅ implementada; uso 🔜 |
+| Produtor-consumidor com `Lock` + 2 `Condition` | `concorrencia/buffer.py` | Produtores dormem com o buffer cheio e consumidores com ele vazio, sem espera ocupada | colocar/retirar O(1) | ✅ |
+| Condição de corrida mostrada e corrigida (threads) | `concorrencia/estatisticas.py`, `concorrencia/demo_corrida.py` | "ler → somar → gravar" não é atômico; o `Lock` torna a seção crítica exclusiva | — | ✅ |
+| Condição de corrida mostrada e corrigida (banco) | `app/main.py` (`SELECT ... FOR UPDATE`), `test_concorrencia.py --controle-negativo` | Duas compras simultâneas do último item; sem o lock, vende a mais | — | ✅ (FCCPD Parte 1) |
+| Monitoramento via comandos do SO | `scripts/monitor.sh` | CPU/memória via `top`; RSS, threads e estado via `ps` | — | ✅ |
+
+✅ = implementado e testado · 🔜 = planejado para os próximos passos (coletor e
+dashboard do monitor, recomendações da FCCPD)
+
+### Como rodar os testes e a demonstração
+
+Os testes unitários rodam sem Docker:
+
+```bash
+pip install -r requirements-dev.txt
+pytest                                  # estruturas, ordenação, busca e produtor-consumidor
+python -m concorrencia.demo_corrida     # mesma carga sem lock x com lock
+```
+
+Saída da demonstração (3 produtores × 2000 itens, 3 consumidores):
+
+```
+[SEM lock] total=1945 soma=5659166 perdidas=4055 (67.6%) -> ERRADO (condição de corrida)
+[COM lock] total=6000 soma=18003000 perdidas=0 (0.0%)    -> CORRETO
+```
+
+O número de atualizações perdidas sem lock muda a cada execução; com lock o
+resultado é sempre exato. Para a corrida aparecer de forma reproduzível, a
+seção crítica cede a CPU no meio com `time.sleep(0)`: no CPython, por causa do
+GIL, a troca de thread no meio de um `x = x + 1` é rara, e o bug ficaria
+intermitente. O `Lock` corrige com ou sem esse `sleep`.
+
+### Monitor de processo — `scripts/monitor.sh` (Lab 09)
 
 Script Bash que mede CPU e memória (via `top`) e RSS, threads e estado (via
 `ps`) de um processo, grava as medições em CSV, registra alertas quando a CPU
