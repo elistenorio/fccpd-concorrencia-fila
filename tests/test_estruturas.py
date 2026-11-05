@@ -2,7 +2,7 @@ import random
 
 import pytest
 
-from estruturas import ArvoreBusca, Fila, FilaCircular, ListaEncadeada, Pilha, TabelaHash
+from estruturas import ArvoreBusca, Fila, FilaCircular, ListaEncadeada, Pilha, TabelaHash, TopK
 from estruturas.fila_circular import FilaCheiaError
 
 
@@ -179,3 +179,30 @@ def test_arvore_degenera_com_chaves_ordenadas():
     for c in chaves:
         aleatoria.inserir(c)
     assert aleatoria.altura() < 50  # ~ 2 a 3 vezes log2(1000) ≈ 10
+
+
+# --- Top-K ---
+
+def test_top_k_igual_a_ordenar_e_cortar():
+    rng = random.Random(3)
+    dados = [(i, rng.random()) for i in range(1000)]
+    top = TopK(10)
+    for item, score in dados:
+        top.oferecer(item, score)
+    esperado = sorted(dados, key=lambda p: p[1], reverse=True)[:10]
+    assert top.resultado() == esperado
+
+
+def test_top_k_com_menos_itens_que_k():
+    top = TopK(5)
+    for item, score in [("a", 0.1), ("b", 0.9), ("c", 0.5)]:
+        top.oferecer(item, score)
+    assert top.resultado() == [("b", 0.9), ("c", 0.5), ("a", 0.1)]
+    assert len(top) == 3
+
+
+def test_top_k_empate_mantem_quem_chegou_antes():
+    top = TopK(2)
+    for item in ("a", "b", "c"):
+        top.oferecer(item, 1.0)
+    assert top.resultado() == [("a", 1.0), ("b", 1.0)]

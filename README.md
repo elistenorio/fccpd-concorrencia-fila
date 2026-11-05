@@ -308,7 +308,8 @@ de recomendações da FCCPD) usamos **processos** em vez de threads.
 | Tabela hash | `estruturas/tabela_hash.py` | Acesso por chave em O(1): estado por serviço/container no monitor, clientes por produto nas recomendações | O(1) médio, O(n) pior; redimensiona com fator de carga 0,75 | ✅ implementada; uso 🔜 |
 | Árvore binária de busca | `estruturas/arvore_busca.py` | Eventos ordenados por timestamp, com consulta por intervalo | O(h): ~O(log n) aleatório, O(n) degenerada | ✅ implementada; uso 🔜 |
 | Insertion / selection sort | `estruturas/ordenacao.py` | Base de comparação; insertion também é usado pelo quick sort em trechos com menos de 16 elementos | O(n²) (insertion: O(n) se quase ordenado) | ✅ |
-| Merge sort | `estruturas/ordenacao.py` | Top-K das recomendações por score: estável, então empates mantêm a ordem original | O(n log n) sempre; memória O(n) | ✅ implementado; uso 🔜 |
+| Top-K (insertion sort parcial) | `estruturas/top_k.py`; usado em `recomendacoes/calculo.py` | As 10 melhores recomendações entre ~2000 candidatos sem ordenar todos: quem não supera o 10º é descartado em O(1) | O(n·k) pior, ~O(n) na prática; memória O(k) | ✅ |
+| Merge sort | `estruturas/ordenacao.py` | Timeline de eventos do monitor por horário: estável, então eventos do mesmo segundo mantêm a ordem de chegada | O(n log n) sempre; memória O(n) | ✅ implementado; uso 🔜 |
 | Quick sort | `estruturas/ordenacao.py` | Ordenar processos/containers por CPU ou memória no monitor; pivô mediana de três | O(n log n) médio; pilha O(log n) | ✅ implementado; uso 🔜 |
 | Busca sequencial / binária | `estruturas/busca.py` | Sequencial em dados não ordenados; binária para achar amostras por timestamp no histórico ordenado | O(n) / O(log n) | ✅ implementada; uso 🔜 |
 | Produtor-consumidor com `Lock` + 2 `Condition` | `concorrencia/buffer.py` | Produtores dormem com o buffer cheio e consumidores com ele vazio, sem espera ocupada | colocar/retirar O(1) | ✅ |

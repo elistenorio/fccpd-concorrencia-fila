@@ -15,6 +15,7 @@ from estruturas.lista import ListaEncadeada
 from estruturas.ordenacao import insertion_sort, merge_sort, quick_sort, selection_sort
 from estruturas.pilha import Pilha
 from estruturas.tabela_hash import TabelaHash
+from estruturas.top_k import TopK
 
 __all__ = [
     "ArvoreBusca",
@@ -23,6 +24,7 @@ __all__ = [
     "ListaEncadeada",
     "Pilha",
     "TabelaHash",
+    "TopK",
     "busca_binaria",
     "busca_sequencial",
     "insertion_sort",
