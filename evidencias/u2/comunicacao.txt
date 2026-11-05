@@ -1,0 +1,109 @@
+Evidência de comunicação entre serviços — FCCPD U2
+Gerado em: 05/11/2026 18:18:04 (UTC-0300)
+Commit: 18b0aff
+
+Containers:
+  api	Up 16 minutes (healthy)	0.0.0.0:8000->8000/tcp, [::]:8000->8000/tcp
+  postgres	Up 41 minutes (healthy)	0.0.0.0:5432->5432/tcp, [::]:5432->5432/tcp
+  recomendacoes	Up 14 minutes	0.0.0.0:8001->8001/tcp, [::]:8001->8001/tcp
+  reconciliador	Up 16 minutes	
+  redis	Up 41 minutes	0.0.0.0:6379->6379/tcp, [::]:6379->6379/tcp
+  worker	Up 16 minutes	
+  worker	Up 16 minutes	
+  worker	Up 16 minutes
+
+==============================================================================
+1) Comunicação SÍNCRONA (HTTP/REST): api -> recomendacoes
+==============================================================================
+A api recebe GET /produtos/{id} e chama GET /recomendacoes/{id} no serviço de
+recomendações, repassando um X-Request-ID que aparece no log dos dois serviços.
+
+GET http://127.0.0.1:8000/produtos/2?limite=3 -> 200  (X-Request-ID: d34cf23a)
+    recomenda  1625  Peça de cerâmica 1624        score 0.0649
+    recomenda   294  Peça de cerâmica 293         score 0.0615
+    recomenda  1652  Peça de cerâmica 1651        score 0.0615
+  [OK] produto 2 veio com recomendações do outro serviço
+GET http://127.0.0.1:8000/produtos/3?limite=3 -> 200  (X-Request-ID: 3959747a)
+    recomenda  1236  Peça de couro 1235           score 0.1247
+    recomenda   853  Peça de couro 852            score 0.1067
+    recomenda  1190  Peça de couro 1189           score 0.1043
+  [OK] produto 3 veio com recomendações do outro serviço
+GET http://127.0.0.1:8000/produtos/4?limite=3 -> 200  (X-Request-ID: f17477f6)
+    recomenda  1696  Peça de renda 1695           score 0.0714
+    recomenda  1506  Peça de renda 1505           score 0.0706
+    recomenda   119  Peça de renda 118            score 0.0652
+  [OK] produto 4 veio com recomendações do outro serviço
+
+Logs dos containers (filtrados pelos X-Request-ID acima):
+  recomendacoes-1  | 2026-11-05 21:18:06,559 INFO [recomendacoes] [d34cf23a] Consulta de recomendações do produto 2: 3 encontradas
+  recomendacoes-1  | 2026-11-05 21:18:06,644 INFO [recomendacoes] [3959747a] Consulta de recomendações do produto 3: 3 encontradas
+  recomendacoes-1  | 2026-11-05 21:18:06,694 INFO [recomendacoes] [f17477f6] Consulta de recomendações do produto 4: 3 encontradas
+  api-1            | INFO:     [d34cf23a] GET http://recomendacoes:8001/recomendacoes/2 -> 200, 3 recomendações em 433 ms
+  api-1            | INFO:     [3959747a] GET http://recomendacoes:8001/recomendacoes/3 -> 200, 3 recomendações em 15 ms
+  api-1            | INFO:     [f17477f6] GET http://recomendacoes:8001/recomendacoes/4 -> 200, 3 recomendações em 15 ms
+  [OK] X-Request-ID d34cf23a aparece no log da api E no do recomendacoes
+  [OK] X-Request-ID 3959747a aparece no log da api E no do recomendacoes
+  [OK] X-Request-ID f17477f6 aparece no log da api E no do recomendacoes
+
+==============================================================================
+2) Comunicação ASSÍNCRONA (mensageria): api -> Redis/RQ -> worker (Parte 1)
+==============================================================================
+A api grava o pedido como 'pendente', responde 201 e publica o job na fila;
+um dos workers consome o job e marca o pedido como 'processado'.
+
+POST http://127.0.0.1:8000/pedidos -> 201  {'pedido_id': 272043, 'produto_id': 2, 'mensagem': 'Pedido criado com sucesso', 'status': 'pendente'}
+GET http://127.0.0.1:8000/pedidos/272043 -> status 'processado'
+  [OK] pedido 272043 processado pelo worker
+
+Logs dos containers (job pedido-272043):
+  worker-2  | 21:18:09 pedidos: app.tasks.processar_pedido(272043) (pedido-272043)
+  worker-2  | 21:18:13 pedidos: Job OK (pedido-272043)
+
+==============================================================================
+3) FALHA: serviço de recomendações fora do ar
+==============================================================================
+Recomendação é um extra da página do produto: com o serviço fora, a api deve
+continuar respondendo 200, sem recomendações, sem travar.
+
+$ docker compose stop recomendacoes
+GET /produtos/2 (tentativa 1) -> 200 em 1012 ms, recomendacoes_disponiveis=False
+  [OK] página respondeu 200 sem recomendações em menos de 2 s
+GET /produtos/2 (tentativa 2) -> 200 em 6 ms, recomendacoes_disponiveis=False
+  [OK] página respondeu 200 sem recomendações em menos de 2 s
+GET /produtos/2 (tentativa 3) -> 200 em 8 ms, recomendacoes_disponiveis=False
+  [OK] página respondeu 200 sem recomendações em menos de 2 s
+
+$ docker compose start recomendacoes
+(aguardando 15 s para o disjuntor da api fechar)
+GET /produtos/2 depois que o serviço voltou -> 200, recomendacoes_disponiveis=True
+  [OK] recomendações voltaram sem reiniciar a api
+
+Logs da api no período:
+  api-1  | WARNING:  [d52d9ade] Serviço de recomendações indisponível (prazo esgotado) após 1001 ms; disjuntor aberto por 15s
+  api-1  | INFO:     [279f7783] Recomendações em pausa (disjuntor aberto); produto 2 sem recomendações
+  api-1  | INFO:     [51a43c99] Recomendações em pausa (disjuntor aberto); produto 2 sem recomendações
+  api-1  | INFO:     [833e58bb] GET http://recomendacoes:8001/recomendacoes/2 -> 200, 5 recomendações em 26 ms
+
+==============================================================================
+4) Recálculo em lote no serviço de recomendações (trecho paralelo)
+==============================================================================
+POST http://127.0.0.1:8001/recomendacoes/recalcular?modo=processos -> 200
+    modo: processos
+    workers: 8
+    cpus: 8
+    produtos: 2001
+    comparacoes: 4002000
+    recomendacoes_gravadas: 20000
+    tempo_carga_s: 0.319
+    tempo_calculo_s: 3.955
+    tempo_gravacao_s: 0.772
+    tempo_total_s: 5.045
+  [OK] recálculo concluído
+
+Log do recomendacoes:
+  recomendacoes-1  | 2026-11-05 21:18:45,067 INFO [recomendacoes] Recálculo processos com 8 worker(s): 2001 produtos, cálculo 3.96s (carga 0.32s, gravação 0.77s)
+
+==============================================================================
+RESULTADO
+==============================================================================
+Todos os cenários OK
