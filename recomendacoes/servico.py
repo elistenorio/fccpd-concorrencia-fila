@@ -56,7 +56,10 @@ def gravar(db, ids, recomendacoes):
 
 
 def recalcular(modo="processos", workers=None, k=10):
-    workers = workers or os.cpu_count() or 1
+    # Padrão vem do compose (RECOMENDACOES_WORKERS=4): no benchmark, 4 processos
+    # (= núcleos físicos) foi o melhor; 8 (= núcleos lógicos, o que
+    # os.cpu_count() informa) ficou mais lento. Ver a seção U2 do README.
+    workers = workers or int(os.getenv("RECOMENDACOES_WORKERS", "0")) or os.cpu_count() or 1
     db = SessionLocal()
     try:
         t0 = time.perf_counter()
