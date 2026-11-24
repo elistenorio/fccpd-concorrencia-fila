@@ -10,5 +10,6 @@ COPY ./estruturas ./estruturas
 COPY ./recomendacoes ./recomendacoes
 COPY ./concorrencia ./concorrencia
 COPY ./monitor ./monitor
+COPY ./demo ./demo
 
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]

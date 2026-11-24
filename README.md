@@ -413,6 +413,7 @@ recomendações da FCCPD) usamos processos.
 | Coleta de hardware/SO por `/proc` | `monitor/nivel1_so.py` | CPU por núcleo, memória, disco, processos e threads | `pronto` |
 | Coleta de containers e serviços | `monitor/nivel2_containers.py`, `monitor/nivel3_servicos.py` | API da Docker Engine (status, CPU, memória, reinícios, OOMKilled) e health check HTTP | `pronto` |
 | Painel com as 3 telas | `monitor/web/`, `monitor/main.py` | Hardware/SO, containers e serviços, com alertas e linha do tempo | `pronto` |
+| Demonstração de OOM ao vivo | `demo/vazamento.py` (perfil `demo` do Compose) | Container com limite de 128 MB que aloca até o kernel matar: alerta, `OOMKilled` e evento crítico na tela | `pronto` (bônus) |
 
 **Demonstração** (3 produtores × 2000 itens, 3 consumidores):
 
@@ -542,6 +543,26 @@ Confere as 4 threads e os três níveis, derruba o `recomendacoes` com
 confirma o evento de volta. Roda no CI a cada push, com os containers de
 verdade, e o arquivo gerado fica anexado à execução
 ([`evidencias/pi3/README.md`](evidencias/pi3/README.md)).
+
+**Demonstração de OOM ao vivo (bônus)**
+
+Com o painel aberto na tela de containers:
+
+```bash
+docker compose --profile demo up -d --build vazamento
+```
+
+[`demo/vazamento.py`](demo/vazamento.py) aloca 4 MB a cada 1,5 s num container
+com `mem_limit: 128m`. Em cerca de 50 segundos dá para ver, na ordem: a barra de
+memória subindo, o **alerta de 80%** na faixa do topo, o kernel matando o
+processo e o container aparecendo como `exited` com `OOMKilled`, mais o evento
+**crítico** na linha do tempo da tela de serviços.
+
+O serviço está no perfil `demo`, então não sobe com `docker compose up` nem no
+CI. `memswap_limit` igual ao `mem_limit` desliga o swap: sem isso o container
+escorrega para a troca e nunca chega ao OOM. Com `DEMO_TETO_MB=95` ele para no
+alerta sem morrer, se a ideia for mostrar só o aviso; e trocando `restart: "no"`
+por `on-failure` dá para mostrar também o contador de reinícios da tela 2.
 
 **Monitor de processo — `scripts/monitor.sh` (Lab 09)**
 

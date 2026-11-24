@@ -78,6 +78,9 @@ services:
       MONITOR_INTERVALO_CONTAINERS: "5"
       MONITOR_INTERVALO_SERVICOS: "5"
       MONITOR_DISCO: "/hostfs"
+      # Sem isto, a tela 2 mostra todos os containers da máquina. Descomente
+      # com o nome do projeto Compose para ver só os do Origem.
+      # MONITOR_PROJETO: "origem"
     ports:
       - "8002:8002"
     # Nível 1: sem isto, /proc mostra só os processos do próprio container.
@@ -98,6 +101,27 @@ services:
       interval: 10s
       timeout: 3s
       retries: 5
+
+  # Demonstração de OOM (bônus do PI3). Fica no perfil "demo": não sobe com
+  # `docker compose up`, nem no CI. Para rodar, com o painel aberto:
+  #   docker compose --profile demo up -d --build vazamento
+  vazamento:
+    build: .
+    profiles: ["demo"]
+    # Morre e fica morto, para o OOMKilled continuar visível na tela 2. Troque
+    # por on-failure para demonstrar também o contador de reinícios.
+    restart: "no"
+    command: ["python", "-m", "demo.vazamento"]
+    environment:
+      DEMO_PASSO_MB: "4"
+      DEMO_PAUSA_S: "1.5"
+      # DEMO_TETO_MB: "95"   # para só no alerta de 80%, sem matar o container
+    # 128 MB de limite; memswap igual ao limite desliga o swap, senão o
+    # container escorrega para a troca e nunca chega ao OOM.
+    mem_limit: 128m
+    memswap_limit: 128m
+    volumes:
+      - ./demo:/code/demo
 
   worker:
     build: .

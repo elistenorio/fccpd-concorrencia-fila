@@ -67,7 +67,10 @@ class Coletor:
             servicos = parse_servicos(do_ambiente) if do_ambiente else SERVICOS_PADRAO
 
         self._so = ColetorSO()
-        self._containers = ColetorContainers(rotulo_projeto=os.getenv("COMPOSE_PROJECT_NAME") or None)
+        # Sem MONITOR_PROJETO, o nível 2 mostra todos os containers da máquina.
+        # Com ele, só os do projeto Compose indicado (útil se houver outros
+        # containers rodando na máquina de quem apresenta).
+        self._containers = ColetorContainers(rotulo_projeto=os.getenv("MONITOR_PROJETO") or None)
         self._servicos = ColetorServicos(servicos)
 
         # Contadores por thread, só para o painel mostrar que todas estão vivas.
