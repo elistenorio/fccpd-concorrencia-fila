@@ -603,6 +603,42 @@ confirma o evento de volta. Roda no CI a cada push, com os containers de
 verdade, e o arquivo gerado fica anexado à execução
 ([`evidencias/pi3/README.md`](evidencias/pi3/README.md)).
 
+### Deploy pelo pipeline
+
+O CI não para nos testes: quando um commit entra no `main` e os jobs de teste e
+de integração passam, o pipeline **constrói e publica a imagem** no GitHub
+Container Registry, com duas tags, `latest` e o SHA do commit
+([`ci.yml`](.github/workflows/ci.yml)). Um Dockerfile só serve api,
+recomendações, workers, reconciliador e monitor, então é uma imagem só.
+
+Não precisa de conta em nuvem nem de segredo novo: o `GITHUB_TOKEN` é gerado
+pelo próprio Actions a cada execução e expira no fim dela. O job pede
+`packages: write`; sem essa permissão o push da imagem falha com 403 mesmo com o
+login dando certo.
+
+Para rodar a partir da imagem publicada, em qualquer máquina com Docker, sem
+compilar nada:
+
+```bash
+export IMAGEM_ORIGEM=ghcr.io/elistenorio/fccpd-concorrencia-fila:latest
+docker compose pull
+docker compose up -d --no-build --wait
+```
+
+Cada serviço no [`docker-compose.yml`](docker-compose.yml) declara `build: .` e
+`image: ${IMAGEM_ORIGEM:-origem:local}` ao mesmo tempo: com a variável definida,
+o Compose usa a imagem do pipeline; sem ela, constrói localmente como antes, e é
+por isso que não existe um segundo arquivo de compose para manter em dia. Para
+voltar a uma versão específica, troque `latest` pelo SHA do commit.
+
+O pacote nasce privado. Para outra máquina baixar sem autenticar, publique o
+pacote em Packages, no GitHub, ou faça `docker login ghcr.io` com um token de
+leitura antes do `pull`.
+
+Isto cobre o "deploy pelo pipeline" da entrega final: o artefato sai do pipeline
+e sobe em qualquer máquina. O que fica de fora, e segue como bônus não feito, é
+a entrega contínua para um ambiente em nuvem.
+
 **Teste de carga**
 
 Com os containers de pé e o painel aberto:

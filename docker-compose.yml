@@ -41,6 +41,10 @@ services:
 
   api:
     build: .
+    # image + build: "docker compose up --build" marca a imagem construída com
+    # este nome, e "docker compose pull" busca a publicada pelo pipeline.
+    # Sem IMAGEM_ORIGEM no ambiente, nada muda em relação a antes.
+    image: ${IMAGEM_ORIGEM:-origem:local}
     restart: always
     env_file: .env
     mem_limit: 512m
@@ -65,6 +69,7 @@ services:
 
   recomendacoes:
     build: .
+    image: ${IMAGEM_ORIGEM:-origem:local}
     restart: always
     env_file: .env
     depends_on:
@@ -96,6 +101,7 @@ services:
   # produtoras + 1 consumidora) no mesmo processo que serve as telas.
   monitor:
     build: .
+    image: ${IMAGEM_ORIGEM:-origem:local}
     restart: always
     command: ["uvicorn", "monitor.main:app", "--host", "0.0.0.0", "--port", "8002"]
     mem_limit: 256m
@@ -135,6 +141,7 @@ services:
   #   docker compose --profile demo up -d --build vazamento
   vazamento:
     build: .
+    image: ${IMAGEM_ORIGEM:-origem:local}
     profiles: ["demo"]
     # Morre e fica morto, para o OOMKilled continuar visível na tela 2. Troque
     # por on-failure para demonstrar também o contador de reinícios.
@@ -153,6 +160,7 @@ services:
 
   worker:
     build: .
+    image: ${IMAGEM_ORIGEM:-origem:local}
     restart: always
     env_file: .env
     depends_on:
@@ -171,6 +179,7 @@ services:
 
   reconciliador:
     build: .
+    image: ${IMAGEM_ORIGEM:-origem:local}
     restart: always
     env_file: .env
     depends_on:
