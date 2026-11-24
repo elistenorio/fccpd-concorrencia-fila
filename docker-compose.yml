@@ -1,7 +1,15 @@
 services:
+  # Os limites de memória abaixo não são enfeite: sem mem_limit, a API do
+  # Docker reporta como limite a memória TOTAL da máquina, e a tela 2 do painel
+  # mostraria todo container usando 1% ou 2%, com o alerta de 80% nunca
+  # disparando. Com limite, a coluna "memória" passa a significar alguma coisa.
+  # Os valores são tetos com folga, medidos para não estrangular nada; o próprio
+  # painel mostra se algum serviço está chegando perto do seu.
   postgres:
     image: postgres:16
     restart: always
+    # O seed cria 2000 produtos, 10 mil clientes e 80 mil pedidos.
+    mem_limit: 1g
     environment:
       POSTGRES_USER: fccpd
       POSTGRES_PASSWORD: fccpd
@@ -20,20 +28,33 @@ services:
     image: redis:7
     restart: always
     command: redis-server --appendonly yes
+    mem_limit: 256m
     ports:
       - "6379:6379"
     volumes:
       - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
 
   api:
     build: .
+    # image + build: "docker compose up --build" marca a imagem construída com
+    # este nome, e "docker compose pull" busca a publicada pelo pipeline.
+    # Sem IMAGEM_ORIGEM no ambiente, nada muda em relação a antes.
+    image: ${IMAGEM_ORIGEM:-origem:local}
     restart: always
     env_file: .env
+    mem_limit: 512m
     depends_on:
       postgres:
         condition: service_healthy
+      # service_healthy, e não service_started: o started só garante que o
+      # processo subiu, não que o Redis já aceita conexão.
       redis:
-        condition: service_started
+        condition: service_healthy
     ports:
       - "8000:8000"
     volumes:
@@ -48,12 +69,18 @@ services:
 
   recomendacoes:
     build: .
+    image: ${IMAGEM_ORIGEM:-origem:local}
     restart: always
     env_file: .env
     depends_on:
       api:
         condition: service_healthy
     command: ["uvicorn", "recomendacoes.main:app", "--host", "0.0.0.0", "--port", "8001"]
+    # O mais alto dos limites: o recálculo roda com 4 processos criados por
+    # spawn, e cada um recebe a sua cópia dos dados. Se o painel mostrar este
+    # serviço perto do limite durante um recálculo, suba o valor ou baixe
+    # RECOMENDACOES_WORKERS.
+    mem_limit: 1536m
     environment:
       # Nº de processos do recálculo. 4 = núcleos físicos da máquina do
       # benchmark, a melhor configuração medida (ver README, U2).
@@ -64,15 +91,88 @@ services:
       - ./app:/code/app
       - ./estruturas:/code/estruturas
       - ./recomendacoes:/code/recomendacoes
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8001/')"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  # Painel de monitoramento do PI3. Sobe o coletor concorrente (3 threads
+  # produtoras + 1 consumidora) no mesmo processo que serve as telas.
+  monitor:
+    build: .
+    image: ${IMAGEM_ORIGEM:-origem:local}
+    restart: always
+    command: ["uvicorn", "monitor.main:app", "--host", "0.0.0.0", "--port", "8002"]
+    mem_limit: 256m
+    environment:
+      # Serviços do nível 3 (health check): nome=url, separados por vírgula.
+      MONITOR_SERVICOS: "api=http://api:8000/,recomendacoes=http://recomendacoes:8001/"
+      MONITOR_INTERVALO_SO: "2"
+      MONITOR_INTERVALO_CONTAINERS: "5"
+      MONITOR_INTERVALO_SERVICOS: "5"
+      MONITOR_DISCO: "/hostfs"
+      # Sem isto, o monitor descobre sozinho a que projeto Compose ele
+      # pertence e mostra só os containers desse projeto. Use o nome de outro
+      # projeto para monitorá-lo, ou TODOS para ver a máquina inteira.
+      # MONITOR_PROJETO: "TODOS"
+    ports:
+      - "8002:8002"
+    # Nível 1: sem isto, /proc mostra só os processos do próprio container.
+    # Com o namespace de PID do host, o painel vê os processos da máquina
+    # (em Docker Desktop, da VM que roda os containers).
+    pid: host
+    volumes:
+      # Nível 2: a API da Docker Engine, somente leitura. É o socket do host,
+      # então o monitor vê todos os containers do Compose, inclusive ele mesmo.
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      # Nível 1: raiz do host somente leitura, só para medir o disco.
+      - /:/hostfs:ro
+      - ./monitor:/code/monitor
+      - ./estruturas:/code/estruturas
+      - ./concorrencia:/code/concorrencia
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8002/saude')"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  # Demonstração de OOM (bônus do PI3). Fica no perfil "demo": não sobe com
+  # `docker compose up`, nem no CI. Para rodar, com o painel aberto:
+  #   docker compose --profile demo up -d --build vazamento
+  vazamento:
+    build: .
+    image: ${IMAGEM_ORIGEM:-origem:local}
+    profiles: ["demo"]
+    # Morre e fica morto, para o OOMKilled continuar visível na tela 2. Troque
+    # por on-failure para demonstrar também o contador de reinícios.
+    restart: "no"
+    command: ["python", "-m", "demo.vazamento"]
+    environment:
+      DEMO_PASSO_MB: "4"
+      DEMO_PAUSA_S: "1.5"
+      # DEMO_TETO_MB: "95"   # para só no alerta de 80%, sem matar o container
+    # 128 MB de limite; memswap igual ao limite desliga o swap, senão o
+    # container escorrega para a troca e nunca chega ao OOM.
+    mem_limit: 128m
+    memswap_limit: 128m
+    volumes:
+      - ./demo:/code/demo
 
   worker:
     build: .
+    image: ${IMAGEM_ORIGEM:-origem:local}
     restart: always
     env_file: .env
     depends_on:
       - redis
       - postgres
     command: ["python", "-m", "app.worker"]
+    # Por réplica. Sem healthcheck: um worker RQ não expõe nada que dê para
+    # checar de fora sem inventar sinal (o processo existir não diz que ele
+    # está consumindo a fila). Quem mostra se os workers estão trabalhando é o
+    # painel, pela CPU deles, e o teste de carga, pela vazão da fila.
+    mem_limit: 256m
     volumes:
       - ./app:/code/app
     deploy:
@@ -80,6 +180,7 @@ services:
 
   reconciliador:
     build: .
+    image: ${IMAGEM_ORIGEM:-origem:local}
     restart: always
     env_file: .env
     depends_on:
@@ -88,6 +189,7 @@ services:
       redis:
         condition: service_started
     command: ["python", "-m", "app.reconciliador"]
+    mem_limit: 128m
     volumes:
       - ./app:/code/app
 

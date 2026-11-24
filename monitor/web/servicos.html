@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Origem — Serviços</title>
+<link rel="stylesheet" href="/painel/painel.css">
+</head>
+<body>
+<header>
+  <h1>Origem <span>· painel de monitoramento</span></h1>
+  <nav>
+    <a href="/painel/">Hardware e SO</a>
+    <a href="/painel/containers.html">Containers</a>
+    <a href="/painel/servicos.html">Serviços</a>
+  </nav>
+  <div id="estado-coleta">carregando…</div>
+</header>
+
+<main>
+  <div id="faixa-alertas"></div>
+
+  <h2>Nível 3 — serviços</h2>
+  <div class="grade" id="servicos"></div>
+
+  <h2>Linha do tempo de eventos</h2>
+  <div class="controles">
+    <label for="janela">Últimos</label>
+    <select id="janela">
+      <option value="15">15 minutos</option>
+      <option value="60">60 minutos</option>
+      <option value="240">4 horas</option>
+    </select>
+  </div>
+  <ul class="linha-tempo" id="eventos"></ul>
+  <p class="nota">
+    Health check HTTP a cada 5 s, com timeout de 2 s. Os eventos são consultados
+    por intervalo na árvore binária de busca (chave = horário) e ordenados com o
+    merge sort próprio, que é estável: eventos do mesmo instante mantêm a ordem
+    em que aconteceram.
+  </p>
+</main>
+
+<script src="/painel/painel.js"></script>
+<script>
+function seloEstado(estado) {
+  if (estado === "no ar") return '<span class="selo ok">no ar</span>';
+  if (estado === "degradado") return '<span class="selo alerta">degradado</span>';
+  return '<span class="selo critico">fora</span>';
+}
+
+function seloSeveridade(severidade) {
+  const classe = severidade === "critico" ? "critico" : severidade === "alerta" ? "alerta" : "neutro";
+  return `<span class="selo ${classe}">${escapar(severidade)}</span>`;
+}
+
+async function atualizarTela() {
+  const minutos = document.getElementById("janela").value;
+  const dados = await buscar(`/api/nivel3?minutos=${minutos}`);
+
+  document.getElementById("servicos").innerHTML = dados.servicos.length
+    ? dados.servicos
+        .map(
+          (s) => `<div class="cartao">
+            <div class="rotulo">${escapar(s.nome)}</div>
+            <div class="valor" style="font-size:20px">${seloEstado(s.estado)}</div>
+            <div class="detalhe">
+              resposta em ${s.tempo_resposta_ms} ms${s.codigo ? ` · HTTP ${s.codigo}` : ""}<br>
+              nesse estado há ${formatarDuracao(s.tempo_no_ar_s)}
+              ${s.detalhe ? `<br>${escapar(s.detalhe)}` : ""}
+            </div>
+          </div>`
+        )
+        .join("")
+    : '<p class="vazio">Aguardando o primeiro health check…</p>';
+
+  const lista = document.getElementById("eventos");
+  lista.innerHTML = dados.eventos.length
+    ? dados.eventos
+        .map(
+          (e) => `<li>
+            <time>${formatarHora(e.timestamp)}</time>
+            ${seloSeveridade(e.severidade)}
+            <span>${escapar(e.mensagem)}</span>
+          </li>`
+        )
+        .join("")
+    : `<li class="vazio">Nenhum evento nos últimos ${minutos} minutos.</li>`;
+}
+
+document.getElementById("janela").addEventListener("change", atualizarTela);
+iniciarPainel(atualizarTela);
+</script>
+</body>
+</html>

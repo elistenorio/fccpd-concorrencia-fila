@@ -18,7 +18,7 @@ jobs:
       - name: Instalar dependências de teste
         run: pip install -r requirements-dev.txt
 
-      - name: Estruturas, ordenação, busca, produtor-consumidor, seed e cálculo de recomendações
+      - name: Estruturas, ordenação, busca, produtor-consumidor, monitor, seed e cálculo de recomendações
         run: pytest -v
 
       - name: Demonstração da condição de corrida (falha se a versão COM lock errar)
@@ -56,14 +56,64 @@ jobs:
       - name: Comunicação entre serviços (REST, fila e falha do serviço de recomendações)
         run: python evidencia_comunicacao.py
 
-      - name: Guardar a evidência gerada
+      - name: Monitor — coletor concorrente e os três níveis (PI3)
+        run: python evidencia_monitor.py
+
+      - name: Guardar as evidências geradas
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: evidencia-comunicacao
-          path: evidencias/u2/comunicacao.txt
+          name: evidencias
+          path: |
+            evidencias/u2/comunicacao.txt
+            evidencias/pi3/monitor.txt
           if-no-files-found: ignore
 
       - name: Logs dos containers (se algo falhou)
         if: failure()
         run: docker compose logs --no-color
+
+  publicar:
+    name: Publicar imagem (GHCR)
+    # Só no main, e só depois que testes e integração passaram: o pipeline não
+    # publica código que não foi verificado. Em pull request este job nem roda,
+    # porque aí a imagem ainda não representa nada que foi aceito.
+    needs: [testes, integracao]
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      # Necessária para o GITHUB_TOKEN poder escrever no GHCR. Sem esta linha,
+      # o push da imagem falha com 403, mesmo com o login dando certo.
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Login no GitHub Container Registry
+        # Sem segredo novo: o GITHUB_TOKEN é gerado pelo próprio Actions a cada
+        # execução e expira no fim dela.
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+
+      - name: Build e push da imagem
+        # Um Dockerfile só serve api, recomendações, workers, reconciliador e
+        # monitor, então é uma imagem só. Duas tags: "latest", que o compose usa
+        # por padrão, e o SHA do commit, que permite voltar a uma versão exata.
+        run: |
+          IMAGEM="ghcr.io/${{ github.repository }}"
+          IMAGEM=$(echo "$IMAGEM" | tr '[:upper:]' '[:lower:]')   # GHCR só aceita minúsculas
+          docker build -t "$IMAGEM:latest" -t "$IMAGEM:${{ github.sha }}" .
+          docker push "$IMAGEM:latest"
+          docker push "$IMAGEM:${{ github.sha }}"
+          echo "Publicado: $IMAGEM:latest e $IMAGEM:${{ github.sha }}"
+
+      - name: Resumo da publicação
+        run: |
+          IMAGEM=$(echo "ghcr.io/${{ github.repository }}" | tr '[:upper:]' '[:lower:]')
+          {
+            echo "### Imagem publicada"
+            echo ""
+            echo '```bash'
+            echo "export IMAGEM_ORIGEM=$IMAGEM:latest"
+            echo "docker compose pull && docker compose up -d --no-build"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"

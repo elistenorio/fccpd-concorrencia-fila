@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Origem — Hardware e SO</title>
+<link rel="stylesheet" href="/painel/painel.css">
+</head>
+<body>
+<header>
+  <h1>Origem <span>· painel de monitoramento</span></h1>
+  <nav>
+    <a href="/painel/">Hardware e SO</a>
+    <a href="/painel/containers.html">Containers</a>
+    <a href="/painel/servicos.html">Serviços</a>
+  </nav>
+  <div id="estado-coleta">carregando…</div>
+</header>
+
+<main>
+  <div id="faixa-alertas"></div>
+
+  <h2>Nível 1 — hardware e sistema operacional</h2>
+  <div class="grade" id="cartoes"></div>
+
+  <h2>Histórico</h2>
+  <div class="grade" style="grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));">
+    <div class="grafico" id="g-cpu">
+      <div class="titulo"><span>CPU total</span><b>—</b></div><svg></svg>
+    </div>
+    <div class="grafico" id="g-memoria">
+      <div class="titulo"><span>Memória usada</span><b>—</b></div><svg></svg>
+    </div>
+    <div class="grafico" id="g-threads">
+      <div class="titulo"><span>Threads no sistema</span><b>—</b></div><svg></svg>
+    </div>
+  </div>
+
+  <h2>CPU por núcleo</h2>
+  <div class="grade" id="nucleos"></div>
+
+  <h2>Processos</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>PID</th><th>Processo</th><th>Estado</th>
+        <th class="num">CPU</th><th class="num">Memória (RSS)</th><th class="num">Threads</th>
+      </tr>
+    </thead>
+    <tbody id="processos"></tbody>
+  </table>
+  <p class="nota">
+    Lido de <code>/proc</code> a cada 2 s pela thread do nível 1. Os processos vêm
+    ordenados por CPU com o quick sort próprio; a lista guarda os 25 maiores de
+    cada amostra.
+  </p>
+</main>
+
+<script src="/painel/painel.js"></script>
+<script>
+function cartao(rotulo, valor, detalhe) {
+  return `<div class="cartao">
+    <div class="rotulo">${rotulo}</div>
+    <div class="valor">${valor}</div>
+    <div class="detalhe">${detalhe ?? "&nbsp;"}</div>
+  </div>`;
+}
+
+async function atualizarTela() {
+  const { amostra, series } = await buscar("/api/nivel1?janela=90");
+  if (!amostra) {
+    document.getElementById("cartoes").innerHTML =
+      '<p class="vazio">Aguardando a primeira amostra do coletor…</p>';
+    return;
+  }
+
+  const mem = amostra.memoria || {};
+  const disco = amostra.disco || {};
+  document.getElementById("cartoes").innerHTML = [
+    cartao("CPU total", pct(amostra.cpu_total_pct), `${amostra.cpus.length} núcleos`),
+    cartao("Memória", pct(mem.uso_pct), `${formatarBytes(mem.usada_bytes)} de ${formatarBytes(mem.total_bytes)}`),
+    cartao("Disco (/)", pct(disco.uso_pct), `${formatarBytes(disco.usado_bytes)} de ${formatarBytes(disco.total_bytes)}`),
+    cartao("Processos", amostra.total_processos, `${amostra.total_threads} threads`),
+    cartao("Tempo no ar", formatarDuracao(amostra.uptime_s), `coleta em ${amostra.duracao_coleta_ms} ms`),
+  ].join("");
+
+  desenharGrafico(document.getElementById("g-cpu"), series.cpu_total);
+  desenharGrafico(document.getElementById("g-memoria"), series.memoria);
+  desenharGrafico(document.getElementById("g-threads"), series.threads, { maximo: 0, sufixo: "", decimais: 0 });
+
+  document.getElementById("nucleos").innerHTML = amostra.cpus
+    .map(
+      (c) => `<div class="cartao">
+        <div class="rotulo">${escapar(c.nome)}</div>
+        <div class="valor" style="font-size:20px">${pct(c.uso_pct)}</div>
+        ${barra(c.uso_pct, 90)}
+      </div>`
+    )
+    .join("");
+
+  document.getElementById("processos").innerHTML = amostra.processos
+    .map(
+      (p) => `<tr>
+        <td>${p.pid}</td>
+        <td>${escapar(p.nome)}</td>
+        <td><span class="selo neutro">${escapar(p.estado)}</span></td>
+        <td class="num">${pct(p.cpu_pct)}</td>
+        <td class="num">${formatarBytes(p.rss_bytes)}</td>
+        <td class="num">${p.threads}</td>
+      </tr>`
+    )
+    .join("");
+}
+
+iniciarPainel(atualizarTela);
+</script>
+</body>
+</html>
