@@ -363,6 +363,39 @@ array. Nas partes avaliadas não usamos `list.append/pop/sort`, `dict`, `set`,
 | Quick sort | `estruturas/ordenacao.py` (usado em `monitor/nivel1_so.py` e `monitor/estado.py`) | Processos por CPU (a amostra guarda os 25 maiores) e containers por CPU, memória ou nome; pivô mediana de três | O(n log n) médio | `pronto` |
 | Busca sequencial / binária | `estruturas/busca.py` (usadas em `monitor/estado.py`) | Sequencial para achar um processo pelo nome (amostra ordenada por CPU); binária para o corte do histórico por horário | O(n) / O(log n) | `pronto` |
 
+**Benchmark entre os algoritmos** (sem Docker):
+
+```bash
+python -m estruturas.benchmark            # ~1 min
+python -m estruturas.benchmark --rapido
+```
+
+Compara insertion, selection, merge e quick (mais o `sorted()` do Python como
+régua, já que é C contra Python interpretado) em cinco cenários de entrada:
+aleatório, ordenado, invertido, quase ordenado e com muitas chaves repetidas.
+Mede também estabilidade e sequencial contra binária, com o ponto de equilíbrio
+a partir do qual vale ordenar antes de buscar. Cada execução confere a saída de
+todos os algoritmos contra o `sorted()`, registra a máquina no cabeçalho e
+escreve a interpretação com os números daquela execução, em
+`evidencias/pi3/benchmark-algoritmos.md`.
+
+Três resultados que vale conhecer antes da apresentação:
+
+- **O melhor caso do insertion sort é real:** com entrada já ordenada ele fica
+  duas ordens de grandeza à frente da mesma entrada embaralhada. É o motivo de
+  ele ser usado dentro do quick sort nos trechos com menos de 16 elementos.
+- **O pivô mediana de três funciona:** a entrada ordenada, que é o pior caso
+  clássico do quick sort com pivô ingênuo, não degenerou.
+- **O pior caso do nosso quick sort são as chaves repetidas, não a entrada
+  ordenada.** A partição de Lomuto manda todos os elementos iguais ao pivô para
+  o mesmo lado, então com poucos valores distintos cada partição tira só um
+  elemento e o tempo vira O(n²): quadruplicar o n multiplicou o tempo por ~16.
+  Onde o monitor usa quick sort (processos e containers por CPU ou memória) são
+  dezenas de elementos com chaves decimais, que quase nunca empatam, então o
+  caso ruim não acontece; o cuidado vale para ordenações futuras por campos de
+  poucos valores, como status ou severidade, em que o merge sort é a escolha
+  segura.
+
 `pronto` = implementado, em uso e coberto por testes. Todas as estruturas da
 disciplina são usadas pelo produto: as da FCCPD no cálculo de recomendações e as
 demais no monitor ([Infraestrutura de Software](#infraestrutura-de-software)).
