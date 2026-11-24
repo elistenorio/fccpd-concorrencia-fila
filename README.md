@@ -591,9 +591,12 @@ não expõe nada que dê para checar de fora sem inventar sinal, já que o proce
 existir não quer dizer que ele está consumindo a fila. Quem mostra se eles estão
 trabalhando é o painel, pela CPU, e o teste de carga, pela vazão da fila.
 
-**Evidência**, com os containers de pé:
+**Evidência**, com os containers de pé. Os dois scripts rodam no host, fora do
+container, então precisam das dependências de desenvolvimento instaladas na
+máquina (`httpx`), como o `test_concorrencia.py` da Parte 1:
 
 ```bash
+pip install -r requirements-dev.txt    # uma vez; em Linux recente, use um venv
 python evidencia_monitor.py
 ```
 
@@ -644,6 +647,7 @@ a entrega contínua para um ambiente em nuvem.
 Com os containers de pé e o painel aberto:
 
 ```bash
+pip install -r requirements-dev.txt            # roda no host: precisa do httpx
 python teste_carga.py                          # 20 req/s por 30 s
 python teste_carga.py --taxa 40 --duracao 60
 python teste_carga.py --modo disputa           # todos no mesmo produto

@@ -7,6 +7,7 @@ queda e a volta de um serviço na linha do tempo de eventos e as estruturas
 próprias em uso.
 
 ```bash
+pip install -r requirements-dev.txt   # os scripts rodam no host e usam httpx
 docker compose up -d --build --wait
 python evidencia_monitor.py
 ```
