@@ -150,27 +150,28 @@ gerado por [`evidencia_comunicacao.py`](evidencia_comunicacao.py) a partir dos
 logs reais dos containers):
 
 ```
-GET http://127.0.0.1:8000/produtos/2?limite=3 -> 200  (X-Request-ID: d34cf23a)
-    recomenda  1625  Peça de cerâmica 1624        score 0.0649
+GET http://127.0.0.1:8000/produtos/2?limite=3 -> 200  (X-Request-ID: 44f3adb0)
+    recomenda  1625  Peça de cerâmica 1624        score 0.0667
     ...
-  api-1            | INFO:     [d34cf23a] GET http://recomendacoes:8001/recomendacoes/2 -> 200, 3 recomendações em 433 ms
-  recomendacoes-1  | ... INFO [recomendacoes] [d34cf23a] Consulta de recomendações do produto 2: 3 encontradas
+  api-1            | INFO:     [44f3adb0] GET http://recomendacoes:8001/recomendacoes/2 -> 200, 3 recomendações em 32 ms
+  recomendacoes-1  | ... INFO [recomendacoes] [44f3adb0] Consulta de recomendações do produto 2: 3 encontradas
 
 POST http://127.0.0.1:8000/pedidos -> 201
-  worker-2  | 21:18:09 pedidos: app.tasks.processar_pedido(272043) (pedido-272043)
-  worker-2  | 21:18:13 pedidos: Job OK (pedido-272043)
+  worker-3  | 16:06:06 pedidos: app.tasks.processar_pedido(81057) (pedido-81057)
+  worker-3  | 16:06:10 pedidos: Job OK (pedido-81057)
 
 $ docker compose stop recomendacoes
-GET /produtos/2 (tentativa 1) -> 200 em 1012 ms, recomendacoes_disponiveis=False
-GET /produtos/2 (tentativa 2) -> 200 em 6 ms, recomendacoes_disponiveis=False
-GET /produtos/2 (tentativa 3) -> 200 em 8 ms, recomendacoes_disponiveis=False
+GET /produtos/2 (tentativa 1) -> 200 em 1112 ms, recomendacoes_disponiveis=False
+GET /produtos/2 (tentativa 2) -> 200 em 13 ms, recomendacoes_disponiveis=False
+GET /produtos/2 (tentativa 3) -> 200 em 9 ms, recomendacoes_disponiveis=False
 $ docker compose start recomendacoes
 GET /produtos/2 depois que o serviço voltou -> 200, recomendacoes_disponiveis=True
 ```
 
 O mesmo script roda no CI ([`.github/workflows/ci.yml`](.github/workflows/ci.yml))
 a cada push, com todos os containers, e o arquivo gerado fica anexado à execução.
-Para gerar de novo (containers de pé e seed aplicado):
+Para gerar de novo, com os passos de [Como rodar](#como-rodar) feitos na ordem
+(o recálculo tem que vir depois do seed, porque o seed apaga as recomendações):
 
 ```bash
 python evidencia_comunicacao.py

@@ -1,9 +1,11 @@
 """
 Evidência de que a comunicação entre os serviços funciona (FCCPD U2, critério 1).
 
-Roda no host, com os containers de pé e o seed aplicado:
-    docker compose up -d --build
+Roda no host, com os containers de pé, o seed aplicado e as recomendações já
+calculadas (sem o recálculo, o cenário 1 falha porque a tabela está vazia):
+    docker compose up -d --build --wait
     docker compose exec api python -m app.seed
+    curl -X POST "http://127.0.0.1:8001/recomendacoes/recalcular?modo=processos"
     python evidencia_comunicacao.py
 
 Gera evidencias/u2/comunicacao.txt com, para cada cenário, as respostas HTTP e
