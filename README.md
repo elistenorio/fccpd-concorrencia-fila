@@ -566,6 +566,31 @@ leitura** (sem ele, a tela de containers mostra o aviso e os outros dois níveis
 continuam funcionando) e `pid: host` com `/:/hostfs:ro`, para o nível 1 enxergar
 os processos e o disco da máquina em vez dos do próprio container.
 
+**Por que todo serviço tem `mem_limit`.** Container sem limite faz a API do
+Docker reportar como limite a memória total da máquina: a tela 2 mostraria todo
+mundo em 1% ou 2% e o alerta de 80% nunca dispararia em serviço nenhum. Com
+limite, a coluna de memória passa a significar quanto da cota o serviço gastou.
+
+| Serviço | Limite | Por quê |
+|---|---:|---|
+| `postgres` | 1 GB | o seed cria 2000 produtos, 10 mil clientes e 80 mil pedidos |
+| `recomendacoes` | 1,5 GB | o recálculo roda 4 processos criados por `spawn`, e cada um recebe a sua cópia dos dados |
+| `api` | 512 MB | caminho do checkout, sem trabalho pesado |
+| `worker` | 256 MB | por réplica |
+| `redis`, `monitor` | 256 MB | fila em memória e janela de amostras, ambas limitadas por desenho |
+| `reconciliador` | 128 MB | laço periódico que só consulta pendentes |
+
+São tetos com folga, não medições: se o painel mostrar algum serviço encostando
+no limite, suba o valor (no `recomendacoes`, baixar `RECOMENDACOES_WORKERS`
+também resolve). `redis` e `recomendacoes` ganharam health check junto, e a api
+passou a esperar o Redis ficar `service_healthy` em vez de `service_started`,
+que só garantia que o processo tinha subido, não que ele aceitava conexão.
+
+`worker` e `reconciliador` continuam sem health check de propósito: um worker RQ
+não expõe nada que dê para checar de fora sem inventar sinal, já que o processo
+existir não quer dizer que ele está consumindo a fila. Quem mostra se eles estão
+trabalhando é o painel, pela CPU, e o teste de carga, pela vazão da fila.
+
 **Evidência**, com os containers de pé:
 
 ```bash

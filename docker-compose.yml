@@ -1,7 +1,15 @@
 services:
+  # Os limites de memória abaixo não são enfeite: sem mem_limit, a API do
+  # Docker reporta como limite a memória TOTAL da máquina, e a tela 2 do painel
+  # mostraria todo container usando 1% ou 2%, com o alerta de 80% nunca
+  # disparando. Com limite, a coluna "memória" passa a significar alguma coisa.
+  # Os valores são tetos com folga, medidos para não estrangular nada; o próprio
+  # painel mostra se algum serviço está chegando perto do seu.
   postgres:
     image: postgres:16
     restart: always
+    # O seed cria 2000 produtos, 10 mil clientes e 80 mil pedidos.
+    mem_limit: 1g
     environment:
       POSTGRES_USER: fccpd
       POSTGRES_PASSWORD: fccpd
@@ -20,20 +28,29 @@ services:
     image: redis:7
     restart: always
     command: redis-server --appendonly yes
+    mem_limit: 256m
     ports:
       - "6379:6379"
     volumes:
       - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
 
   api:
     build: .
     restart: always
     env_file: .env
+    mem_limit: 512m
     depends_on:
       postgres:
         condition: service_healthy
+      # service_healthy, e não service_started: o started só garante que o
+      # processo subiu, não que o Redis já aceita conexão.
       redis:
-        condition: service_started
+        condition: service_healthy
     ports:
       - "8000:8000"
     volumes:
@@ -54,6 +71,11 @@ services:
       api:
         condition: service_healthy
     command: ["uvicorn", "recomendacoes.main:app", "--host", "0.0.0.0", "--port", "8001"]
+    # O mais alto dos limites: o recálculo roda com 4 processos criados por
+    # spawn, e cada um recebe a sua cópia dos dados. Se o painel mostrar este
+    # serviço perto do limite durante um recálculo, suba o valor ou baixe
+    # RECOMENDACOES_WORKERS.
+    mem_limit: 1536m
     environment:
       # Nº de processos do recálculo. 4 = núcleos físicos da máquina do
       # benchmark, a melhor configuração medida (ver README, U2).
@@ -64,6 +86,11 @@ services:
       - ./app:/code/app
       - ./estruturas:/code/estruturas
       - ./recomendacoes:/code/recomendacoes
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8001/')"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
 
   # Painel de monitoramento do PI3. Sobe o coletor concorrente (3 threads
   # produtoras + 1 consumidora) no mesmo processo que serve as telas.
@@ -71,6 +98,7 @@ services:
     build: .
     restart: always
     command: ["uvicorn", "monitor.main:app", "--host", "0.0.0.0", "--port", "8002"]
+    mem_limit: 256m
     environment:
       # Serviços do nível 3 (health check): nome=url, separados por vírgula.
       MONITOR_SERVICOS: "api=http://api:8000/,recomendacoes=http://recomendacoes:8001/"
@@ -131,6 +159,11 @@ services:
       - redis
       - postgres
     command: ["python", "-m", "app.worker"]
+    # Por réplica. Sem healthcheck: um worker RQ não expõe nada que dê para
+    # checar de fora sem inventar sinal (o processo existir não diz que ele
+    # está consumindo a fila). Quem mostra se os workers estão trabalhando é o
+    # painel, pela CPU deles, e o teste de carga, pela vazão da fila.
+    mem_limit: 256m
     volumes:
       - ./app:/code/app
     deploy:
@@ -146,6 +179,7 @@ services:
       redis:
         condition: service_started
     command: ["python", "-m", "app.reconciliador"]
+    mem_limit: 128m
     volumes:
       - ./app:/code/app
 
