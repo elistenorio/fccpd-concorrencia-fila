@@ -413,6 +413,7 @@ recomendações da FCCPD) usamos processos.
 | Coleta de hardware/SO por `/proc` | `monitor/nivel1_so.py` | CPU por núcleo, memória, disco, processos e threads | `pronto` |
 | Coleta de containers e serviços | `monitor/nivel2_containers.py`, `monitor/nivel3_servicos.py` | API da Docker Engine (status, CPU, memória, reinícios, OOMKilled) e health check HTTP | `pronto` |
 | Painel com as 3 telas | `monitor/web/`, `monitor/main.py` | Hardware/SO, containers e serviços, com alertas e linha do tempo | `pronto` |
+| Teste de carga | `teste_carga.py` | Taxa fixa de pedidos por alguns minutos: latência, vazão, acúmulo da fila e o que o painel registrou | `pronto` |
 | Demonstração de OOM ao vivo | `demo/vazamento.py` (perfil `demo` do Compose) | Container com limite de 128 MB que aloca até o kernel matar: alerta, `OOMKilled` e evento crítico na tela | `pronto` (bônus) |
 
 **Demonstração** (3 produtores × 2000 itens, 3 consumidores):
@@ -543,6 +544,42 @@ Confere as 4 threads e os três níveis, derruba o `recomendacoes` com
 confirma o evento de volta. Roda no CI a cada push, com os containers de
 verdade, e o arquivo gerado fica anexado à execução
 ([`evidencias/pi3/README.md`](evidencias/pi3/README.md)).
+
+**Teste de carga**
+
+Com os containers de pé e o painel aberto:
+
+```bash
+python teste_carga.py                          # 20 req/s por 30 s
+python teste_carga.py --taxa 40 --duracao 60
+python teste_carga.py --modo disputa           # todos no mesmo produto
+```
+
+[`teste_carga.py`](teste_carga.py) é diferente do `test_concorrencia.py`: lá são
+50 requisições de uma vez para provar correção, aqui é **carga sustentada com
+taxa controlada**, para medir o comportamento sob pressão e ver o painel
+reagindo. Gera `evidencias/pi3/carga.txt`.
+
+- **Taxa fixa (open loop).** As requisições saem no horário marcado, respondam
+  ou não. Se o script esperasse cada resposta para mandar a próxima, a carga
+  cairia junto com o sistema quando ele ficasse lento e a lentidão apareceria
+  menor do que é (*coordinated omission*).
+- **Dois modos.** `espalhado` distribui os pedidos entre vários produtos e mede
+  a vazão real do checkout; `disputa` manda tudo para o mesmo produto, e como o
+  `POST /pedidos` usa `SELECT ... FOR UPDATE`, as transações se enfileiram na
+  mesma linha: a latência passa a mostrar o custo do lock pessimista sob carga.
+- **Relatório:** respostas por código, latência (mediana, p90, p95, p99, máx,
+  com os percentis calculados pelo quick sort próprio), vazão por segundo, o
+  acúmulo da fila e a vazão dos workers, mais CPU da máquina, pico por container
+  e os eventos que o monitor registrou no período.
+- **A fila acumula de propósito:** cada job simula 3 s e são 3 réplicas, então a
+  fila processa ~1 pedido/s enquanto a api aceita dezenas. É o desacoplamento da
+  Parte 1 (a compra não espera o pós-venda), e o relatório mostra o tamanho da
+  fila e em quanto tempo ela drena no ritmo medido.
+
+O script lê o painel só por `/api/nivel1`, `/api/nivel2` e `/api/eventos`, nunca
+por `/api/alertas`: esse consome a fila de alertas e os avisos sumiriam da tela
+justamente durante a demonstração.
 
 **Demonstração de OOM ao vivo (bônus)**
 
