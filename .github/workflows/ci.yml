@@ -18,7 +18,7 @@ jobs:
       - name: Instalar dependências de teste
         run: pip install -r requirements-dev.txt
 
-      - name: Estruturas, ordenação, busca, produtor-consumidor, seed e cálculo de recomendações
+      - name: Estruturas, ordenação, busca, produtor-consumidor, monitor, seed e cálculo de recomendações
         run: pytest -v
 
       - name: Demonstração da condição de corrida (falha se a versão COM lock errar)
@@ -56,12 +56,17 @@ jobs:
       - name: Comunicação entre serviços (REST, fila e falha do serviço de recomendações)
         run: python evidencia_comunicacao.py
 
-      - name: Guardar a evidência gerada
+      - name: Monitor — coletor concorrente e os três níveis (PI3)
+        run: python evidencia_monitor.py
+
+      - name: Guardar as evidências geradas
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: evidencia-comunicacao
-          path: evidencias/u2/comunicacao.txt
+          name: evidencias
+          path: |
+            evidencias/u2/comunicacao.txt
+            evidencias/pi3/monitor.txt
           if-no-files-found: ignore
 
       - name: Logs dos containers (se algo falhou)

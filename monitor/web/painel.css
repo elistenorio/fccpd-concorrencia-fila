@@ -1,0 +1,162 @@
+/* Painel do monitor. CSS próprio, sem framework: o container do painel não
+   instala nada além do que a API já usa. */
+
+:root {
+  --fundo: #0f1115;
+  --superficie: #171a21;
+  --superficie-2: #1e222b;
+  --borda: #2a2f3a;
+  --texto: #e6e8ec;
+  --texto-fraco: #9aa1ad;
+  --acento: #5b9cf8;
+  --ok: #3fb950;
+  --alerta: #d29922;
+  --critico: #f85149;
+  --radius: 10px;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--fundo);
+  color: var(--texto);
+  font: 15px/1.5 ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+
+header {
+  display: flex;
+  align-items: baseline;
+  gap: 24px;
+  flex-wrap: wrap;
+  padding: 18px 24px;
+  border-bottom: 1px solid var(--borda);
+  background: var(--superficie);
+}
+
+header h1 { font-size: 17px; margin: 0; font-weight: 600; letter-spacing: -0.01em; }
+header h1 span { color: var(--texto-fraco); font-weight: 400; }
+
+nav { display: flex; gap: 4px; }
+
+nav a {
+  color: var(--texto-fraco);
+  text-decoration: none;
+  padding: 6px 12px;
+  border-radius: 999px;
+  font-size: 14px;
+}
+
+nav a:hover { background: var(--superficie-2); color: var(--texto); }
+nav a[aria-current="page"] { background: var(--acento); color: #0b1220; font-weight: 600; }
+
+#estado-coleta { margin-left: auto; font-size: 13px; color: var(--texto-fraco); }
+#estado-coleta b { color: var(--texto); font-weight: 600; }
+
+main { padding: 24px; max-width: 1200px; }
+
+h2 { font-size: 15px; margin: 32px 0 12px; font-weight: 600; }
+h2:first-child { margin-top: 0; }
+
+.grade {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 12px;
+}
+
+.cartao {
+  background: var(--superficie);
+  border: 1px solid var(--borda);
+  border-radius: var(--radius);
+  padding: 14px 16px;
+}
+
+.cartao .rotulo { color: var(--texto-fraco); font-size: 12px; text-transform: uppercase; letter-spacing: 0.04em; }
+.cartao .valor { font-size: 26px; font-weight: 600; margin-top: 6px; font-variant-numeric: tabular-nums; }
+.cartao .detalhe { color: var(--texto-fraco); font-size: 13px; margin-top: 2px; }
+
+table { width: 100%; border-collapse: collapse; font-size: 14px; }
+
+th, td {
+  text-align: left;
+  padding: 9px 12px;
+  border-bottom: 1px solid var(--borda);
+  font-variant-numeric: tabular-nums;
+}
+
+th { color: var(--texto-fraco); font-weight: 500; font-size: 12px; text-transform: uppercase; letter-spacing: 0.04em; }
+tbody tr:hover { background: var(--superficie-2); }
+td.num, th.num { text-align: right; }
+
+.barra {
+  /* display:block é necessário: um span inline ignora height e a barra
+     simplesmente não aparece. */
+  display: block;
+  margin: 8px 0 4px;
+  position: relative;
+  height: 6px;
+  background: var(--superficie-2);
+  border-radius: 999px;
+  overflow: hidden;
+  min-width: 70px;
+}
+
+.barra > i { position: absolute; inset: 0 auto 0 0; background: var(--acento); border-radius: 999px; }
+.barra > i.alerta { background: var(--alerta); }
+.barra > i.critico { background: var(--critico); }
+
+.selo {
+  display: inline-block;
+  padding: 2px 9px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  border: 1px solid transparent;
+}
+
+.selo.ok { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 40%, transparent); }
+.selo.alerta { color: var(--alerta); border-color: color-mix(in srgb, var(--alerta) 40%, transparent); }
+.selo.critico { color: var(--critico); border-color: color-mix(in srgb, var(--critico) 40%, transparent); }
+.selo.neutro { color: var(--texto-fraco); border-color: var(--borda); }
+
+.grafico { background: var(--superficie); border: 1px solid var(--borda); border-radius: var(--radius); padding: 14px 16px; }
+.grafico svg { display: block; width: 100%; height: 90px; }
+.grafico .titulo { display: flex; justify-content: space-between; font-size: 13px; color: var(--texto-fraco); margin-bottom: 8px; }
+.grafico .titulo b { color: var(--texto); font-variant-numeric: tabular-nums; }
+
+#faixa-alertas { display: flex; flex-direction: column; gap: 8px; margin-bottom: 20px; }
+
+.aviso {
+  display: flex;
+  gap: 10px;
+  align-items: baseline;
+  padding: 10px 14px;
+  border-radius: var(--radius);
+  border-left: 3px solid var(--alerta);
+  background: color-mix(in srgb, var(--alerta) 12%, var(--superficie));
+  font-size: 14px;
+}
+
+.aviso.critico { border-left-color: var(--critico); background: color-mix(in srgb, var(--critico) 14%, var(--superficie)); }
+.aviso time { color: var(--texto-fraco); font-size: 12px; font-variant-numeric: tabular-nums; }
+
+.linha-tempo { list-style: none; padding: 0; margin: 0; }
+
+.linha-tempo li {
+  display: grid;
+  grid-template-columns: 78px 70px 1fr;
+  gap: 12px;
+  align-items: baseline;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--borda);
+  font-size: 14px;
+}
+
+.linha-tempo time { color: var(--texto-fraco); font-size: 13px; font-variant-numeric: tabular-nums; }
+
+.vazio { color: var(--texto-fraco); font-size: 14px; padding: 14px 0; }
+
+.nota { color: var(--texto-fraco); font-size: 13px; margin-top: 8px; }
+
+.controles { display: flex; gap: 8px; align-items: center; margin-bottom: 10px; font-size: 13px; color: var(--texto-fraco); }
+.controles select { background: var(--superficie-2); color: var(--texto); border: 1px solid var(--borda); border-radius: 6px; padding: 4px 8px; font: inherit; }

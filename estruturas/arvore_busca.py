@@ -129,6 +129,34 @@ class ArvoreBusca:
             yield atual.chave, atual.valor
             atual = atual.direita
 
+    def itens_no_intervalo(self, minimo, maximo):
+        """
+        Pares (chave, valor) com ``minimo <= chave <= maximo``, em ordem
+        crescente. É a operação que justifica a árvore em vez de uma tabela
+        hash: subárvores inteiras fora do intervalo são podadas, então o custo
+        é O(h + k) para k resultados, e não O(n) como varrer tudo.
+
+        Consulta usada pelo monitor para "eventos dos últimos 5 minutos".
+        """
+        pilha = Pilha()
+        atual = self._raiz
+        while atual is not None or not pilha.vazia():
+            while atual is not None:
+                # Se a chave do nó já é menor que o mínimo, nada à esquerda
+                # dele serve: desce direto para a direita.
+                if atual.chave < minimo:
+                    atual = atual.direita
+                    continue
+                pilha.empilhar(atual)
+                atual = atual.esquerda
+            if pilha.vazia():
+                return
+            atual = pilha.desempilhar()
+            if atual.chave > maximo:
+                return  # em ordem crescente: daqui para frente todos estouram
+            yield atual.chave, atual.valor
+            atual = atual.direita
+
     def altura(self) -> int:
         """Número de níveis (árvore vazia = 0). Percorre por níveis com uma pilha."""
         if self._raiz is None:

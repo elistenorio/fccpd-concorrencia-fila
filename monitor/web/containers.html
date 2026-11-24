@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Origem — Containers</title>
+<link rel="stylesheet" href="/painel/painel.css">
+</head>
+<body>
+<header>
+  <h1>Origem <span>· painel de monitoramento</span></h1>
+  <nav>
+    <a href="/painel/">Hardware e SO</a>
+    <a href="/painel/containers.html">Containers</a>
+    <a href="/painel/servicos.html">Serviços</a>
+  </nav>
+  <div id="estado-coleta">carregando…</div>
+</header>
+
+<main>
+  <div id="faixa-alertas"></div>
+
+  <h2>Nível 2 — containers</h2>
+  <div class="controles">
+    <label for="ordem">Ordenar por</label>
+    <select id="ordem">
+      <option value="cpu">CPU</option>
+      <option value="memoria">Memória</option>
+      <option value="nome">Nome</option>
+    </select>
+    <span id="coletado-em"></span>
+  </div>
+
+  <div id="aviso-docker"></div>
+
+  <table>
+    <thead>
+      <tr>
+        <th>Container</th><th>Serviço</th><th>Status</th>
+        <th class="num">CPU</th><th>Memória (uso / limite)</th>
+        <th class="num">Reinícios</th><th>OOM</th>
+      </tr>
+    </thead>
+    <tbody id="containers"></tbody>
+  </table>
+  <p class="nota">
+    Coletado da API da Docker Engine pelo socket <code>/var/run/docker.sock</code>
+    a cada 5 s. O alerta de memória dispara a partir de
+    <b id="limite">80</b>% do limite do container; <code>OOMKilled</code> marca
+    container morto pelo kernel por falta de memória.
+  </p>
+</main>
+
+<script src="/painel/painel.js"></script>
+<script>
+function seloStatus(status) {
+  if (status === "running") return '<span class="selo ok">no ar</span>';
+  if (status === "restarting") return '<span class="selo alerta">reiniciando</span>';
+  if (status === "exited" || status === "dead") return `<span class="selo critico">${escapar(status)}</span>`;
+  return `<span class="selo neutro">${escapar(status ?? "?")}</span>`;
+}
+
+async function atualizarTela() {
+  const ordem = document.getElementById("ordem").value;
+  const dados = await buscar(`/api/nivel2?ordenar_por=${ordem}`);
+  document.getElementById("limite").textContent = dados.limite_memoria_pct;
+  document.getElementById("coletado-em").textContent = dados.timestamp
+    ? `· coletado às ${formatarHora(dados.timestamp)}`
+    : "";
+
+  document.getElementById("aviso-docker").innerHTML = dados.disponivel
+    ? ""
+    : `<div class="aviso critico"><span>${escapar(dados.motivo ?? "Docker indisponível")}</span></div>`;
+
+  const corpo = document.getElementById("containers");
+  if (!dados.containers.length) {
+    corpo.innerHTML = '<tr><td colspan="7" class="vazio">Nenhum container monitorado ainda.</td></tr>';
+    return;
+  }
+
+  corpo.innerHTML = dados.containers
+    .map((c) => {
+      const mem = c.memoria || {};
+      const saude = c.saude ? ` <span class="selo neutro">${escapar(c.saude)}</span>` : "";
+      return `<tr>
+        <td>${escapar(c.nome)}</td>
+        <td>${escapar(c.servico)}</td>
+        <td>${seloStatus(c.status)}${saude}</td>
+        <td class="num">${pct(c.cpu_pct)}</td>
+        <td>
+          ${barra(mem.uso_pct, dados.limite_memoria_pct)}
+          <div class="detalhe" style="font-size:12px;color:var(--texto-fraco)">
+            ${formatarBytes(mem.usada_bytes)} / ${formatarBytes(mem.limite_bytes)} (${pct(mem.uso_pct)})
+          </div>
+        </td>
+        <td class="num">${c.reinicios ?? "—"}</td>
+        <td>${c.oom_killed ? '<span class="selo critico">OOMKilled</span>' : '<span class="selo neutro">não</span>'}</td>
+      </tr>`;
+    })
+    .join("");
+}
+
+document.getElementById("ordem").addEventListener("change", atualizarTela);
+iniciarPainel(atualizarTela);
+</script>
+</body>
+</html>

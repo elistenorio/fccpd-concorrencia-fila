@@ -22,9 +22,12 @@ docker compose exec api python -m app.seed      # histórico de compras para as 
 curl -X POST "http://localhost:8001/recomendacoes/recalcular?modo=processos"
 ```
 
-Sobe 8 containers: `postgres`, `redis`, `api` (`:8000`), 3 réplicas de
-`worker`, `reconciliador` e `recomendacoes` (`:8001`). O seed cria 2000
-produtos, 10 mil clientes e 80 mil pedidos (apaga tudo, menos o produto 1 dos testes).
+Sobe 9 containers: `postgres`, `redis`, `api` (`:8000`), 3 réplicas de
+`worker`, `reconciliador`, `recomendacoes` (`:8001`) e `monitor` (`:8002`). O
+seed cria 2000 produtos, 10 mil clientes e 80 mil pedidos (apaga tudo, menos o
+produto 1 dos testes).
+
+**Painel de monitoramento do PI3: <http://localhost:8002/painel/>**
 
 ## Endpoints
 
@@ -350,23 +353,26 @@ array. Nas partes avaliadas não usamos `list.append/pop/sort`, `dict`, `set`,
 |---|---|---|---|---|
 | Lista encadeada | `estruturas/lista.py` (usada em `ordenacao.py`) | Copiar entrada de tamanho desconhecido numa passada | início/fim O(1); busca O(n) | `pronto` |
 | Pilha | `estruturas/pilha.py` (usada em `arvore_busca.py`) | Percorrer a árvore sem recursão (evita estouro no caso degenerado) | O(1) | `pronto` |
-| Fila | `estruturas/fila.py` | FIFO sem limite; timeline de eventos do monitor | O(1) | `pronto` · uso `planejado` |
-| Fila circular | `estruturas/fila_circular.py` (usada em `concorrencia/buffer.py`) | Buffer do produtor-consumidor com memória fixa | O(1); memória O(capacidade) | `pronto` |
-| Tabela hash | `estruturas/tabela_hash.py` | Acesso por chave: estado por container, clientes por produto | O(1) médio, O(n) pior; redimensiona em 0,75 | `pronto` · uso `planejado` |
-| Árvore binária de busca | `estruturas/arvore_busca.py` | Eventos por timestamp com consulta por intervalo | O(h): ~O(log n), O(n) degenerada | `pronto` · uso `planejado` |
+| Fila | `estruturas/fila.py` (usada em `monitor/estado.py`) | Fila de alertas: uma amostra pode ser descartada pela janela, um alerta não, então a fila não tem limite | O(1) | `pronto` |
+| Fila circular | `estruturas/fila_circular.py` (usada em `concorrencia/buffer.py` e `monitor/estado.py`) | Buffer entre as threads do coletor e janela das últimas 300 amostras de cada nível: o monitor roda por horas sem a memória crescer | O(1); memória O(capacidade) | `pronto` |
+| Tabela hash | `estruturas/tabela_hash.py` (usada em `monitor/estado.py`) | Acesso por chave: estado por container e por serviço no painel, clientes por produto nas recomendações | O(1) médio, O(n) pior; redimensiona em 0,75 | `pronto` |
+| Árvore binária de busca | `estruturas/arvore_busca.py` (`itens_no_intervalo`, usada em `monitor/estado.py`) | "Eventos dos últimos 15 min": poda as subárvores fora do intervalo. Horários crescentes degenerariam a árvore, então ela é reconstruída balanceada quando a altura passa do dobro do ideal | intervalo O(h + k); h ~log n pelo rebalanceamento, O(n) amortizado | `pronto` |
 | Insertion / selection sort | `estruturas/ordenacao.py` | Base de comparação; insertion também no quick sort (< 16 elementos) | O(n²) (insertion O(n) quase ordenado) | `pronto` |
 | Top-K | `estruturas/top_k.py` (usado em `recomendacoes/calculo.py`) | Top-10 entre ~2000 candidatos sem ordenar todos | O(n·k) pior, ~O(n) na prática | `pronto` |
-| Merge sort | `estruturas/ordenacao.py` | Timeline por horário; estável | O(n log n); memória O(n) | `pronto` · uso `planejado` |
-| Quick sort | `estruturas/ordenacao.py` | Processos por CPU/memória; pivô mediana de três | O(n log n) médio | `pronto` · uso `planejado` |
-| Busca sequencial / binária | `estruturas/busca.py` | Binária para amostras por timestamp no histórico | O(n) / O(log n) | `pronto` · uso `planejado` |
+| Merge sort | `estruturas/ordenacao.py` (usado em `monitor/estado.py`) | Linha do tempo por horário; estável, então eventos do mesmo instante mantêm a ordem em que aconteceram | O(n log n); memória O(n) | `pronto` |
+| Quick sort | `estruturas/ordenacao.py` (usado em `monitor/nivel1_so.py` e `monitor/estado.py`) | Processos por CPU (a amostra guarda os 25 maiores) e containers por CPU, memória ou nome; pivô mediana de três | O(n log n) médio | `pronto` |
+| Busca sequencial / binária | `estruturas/busca.py` (usadas em `monitor/estado.py`) | Sequencial para achar um processo pelo nome (amostra ordenada por CPU); binária para o corte do histórico por horário | O(n) / O(log n) | `pronto` |
 
-`pronto` = implementado e testado · `planejado` = uso previsto no coletor e no dashboard do monitor
+`pronto` = implementado, em uso e coberto por testes. Todas as estruturas da
+disciplina são usadas pelo produto: as da FCCPD no cálculo de recomendações e as
+demais no monitor ([Infraestrutura de Software](#infraestrutura-de-software)).
 
 **Testes** (sem Docker): [`tests/test_estruturas.py`](tests/test_estruturas.py) e [`tests/test_ordenacao_busca.py`](tests/test_ordenacao_busca.py)
 
 ```bash
 pip install -r requirements-dev.txt
 pytest tests/test_estruturas.py tests/test_ordenacao_busca.py
+pytest tests/test_monitor_estado.py   # as estruturas em uso no monitor
 ```
 
 </details>
@@ -382,14 +388,14 @@ pytest tests/test_estruturas.py tests/test_ordenacao_busca.py
 |---|---|
 | Linguagem | Python 3.12, porque o app monitorado (este backend) já é Python |
 | Threads e sincronização | `threading` (`Thread`, `Lock`, `Condition`) |
-| Comandos do SO ou `/proc` | `subprocess` e leitura de `/proc`; o Lab 09 é em Bash (`top`, `ps`, `pgrep`) |
-| Container Linux e CI | Imagem `python:3.12-slim`; testes com pytest sem dependências externas |
+| Comandos do SO ou `/proc` | Leitura de `/proc/stat`, `/proc/meminfo` e `/proc/<pid>/stat`, mais `statvfs`; o Lab 09 é em Bash (`top`, `ps`, `pgrep`) |
+| Container Linux e CI | Imagem `python:3.12-slim` (api, recomendações, workers e monitor); pytest no GitHub Actions, mais um job que sobe o Compose inteiro ([`ci.yml`](.github/workflows/ci.yml)) |
 
 **Testes e demonstração** (sem Docker):
 
 ```bash
 pip install -r requirements-dev.txt
-pytest tests/test_produtor_consumidor.py
+pytest tests/test_produtor_consumidor.py tests/test_monitor_*.py
 python -m concorrencia.demo_corrida     # mesma carga sem lock x com lock
 ```
 
@@ -403,6 +409,10 @@ recomendações da FCCPD) usamos processos.
 | Condição de corrida com threads | `concorrencia/estatisticas.py`, `concorrencia/demo_corrida.py` | "ler → somar → gravar" não é atômico; o `Lock` torna a seção crítica exclusiva | `pronto` |
 | Condição de corrida no banco | `app/main.py` (`FOR UPDATE`), `test_concorrencia.py --controle-negativo` | Duas compras do último item; sem lock, vende a mais | `pronto` (FCCPD) |
 | Monitor via comandos do SO | `scripts/monitor.sh` | CPU/memória via `top`; RSS, threads e estado via `ps` | `pronto` |
+| Coletor concorrente (3 produtoras + 1 consumidora) | `monitor/coletor.py` | Cada nível coleta no seu ritmo; o buffer sincronizado leva as amostras a uma única thread que escreve no estado | `pronto` |
+| Coleta de hardware/SO por `/proc` | `monitor/nivel1_so.py` | CPU por núcleo, memória, disco, processos e threads | `pronto` |
+| Coleta de containers e serviços | `monitor/nivel2_containers.py`, `monitor/nivel3_servicos.py` | API da Docker Engine (status, CPU, memória, reinícios, OOMKilled) e health check HTTP | `pronto` |
+| Painel com as 3 telas | `monitor/web/`, `monitor/main.py` | Hardware/SO, containers e serviços, com alertas e linha do tempo | `pronto` |
 
 **Demonstração** (3 produtores × 2000 itens, 3 consumidores):
 
@@ -414,6 +424,124 @@ recomendações da FCCPD) usamos processos.
 Sem lock, o número de perdas muda a cada execução; com lock, é sempre exato. A
 seção crítica cede a CPU com `time.sleep(0)` para a corrida aparecer de forma
 reproduzível (por causa do GIL ela seria rara); o `Lock` corrige com ou sem o `sleep`.
+
+### Monitoramento: coletor concorrente e painel
+
+O app monitorado é o próprio backend do Origem. O serviço `monitor` sobe no
+mesmo Compose, coleta os três níveis com threads e serve o painel em
+<http://localhost:8002/painel/>.
+
+```mermaid
+flowchart LR
+    navegador([Navegador])
+
+    subgraph compose[Docker Compose]
+        subgraph monitorado[Aplicação monitorada]
+            api["api :8000"]
+            rec["recomendacoes :8001"]
+            worker["worker ×3 · reconciliador"]
+            dados[("PostgreSQL · Redis")]
+        end
+
+        subgraph mon["monitor :8002"]
+            t1["thread nível 1<br/>/proc, 2 s"]
+            t2["thread nível 2<br/>Docker Engine API, 5 s"]
+            t3["thread nível 3<br/>health check, 5 s"]
+            buffer{{"BufferLimitado<br/>FilaCircular + Lock + 2 Condition"}}
+            consumidor["thread consumidora"]
+            estado[("EstadoMonitor<br/>hash · fila circular<br/>árvore · fila")]
+            painel["painel<br/>3 telas + API JSON"]
+        end
+    end
+
+    proc[/"/proc do host"/]
+    sock[/"/var/run/docker.sock"/]
+
+    proc --> t1
+    sock --> t2
+    t3 -. "GET /" .-> api
+    t3 -. "GET /" .-> rec
+
+    t1 == "amostra" ==> buffer
+    t2 == "amostra" ==> buffer
+    t3 == "amostra" ==> buffer
+    buffer ==> consumidor
+    consumidor --> estado
+    estado --> painel
+    painel --> navegador
+```
+
+| Nível | Fonte | O que vai para o painel |
+|---|---|---|
+| 1 — hardware/SO | `/proc/stat`, `/proc/meminfo`, `/proc/<pid>/stat`, `statvfs` | CPU total e por núcleo, memória, disco, processos (os 25 maiores por CPU) e total de threads |
+| 2 — containers | API da Docker Engine pelo socket, somente leitura | status, saúde, CPU, memória usada e limite, reinícios e `OOMKilled` |
+| 3 — serviços | `GET /` em cada serviço, timeout de 2 s | estado, código HTTP, tempo de resposta e há quanto tempo está nesse estado |
+
+**Por que três threads e não um laço só.** Ler `/proc` leva ~2 ms, a API do
+Docker leva centenas de milissegundos (duas chamadas por container) e um health
+check de serviço fora do ar leva o timeout inteiro. Num laço único, a curva de
+CPU ganharia um buraco de 2 s toda vez que um serviço caísse, justamente quando
+a medição mais importa.
+
+**Por que threads servem aqui, apesar do GIL.** As três produtoras passam quase
+todo o tempo esperando I/O (arquivo, socket, resposta HTTP), e o GIL é liberado
+na espera. É o contrário do recálculo de recomendações, que é puro CPU e usa
+processos.
+
+**Por que um buffer no meio.** As estruturas do estado não são thread-safe, e as
+regras de alerta comparam cada amostra com a situação anterior: com uma única
+thread escrevendo, essa comparação acontece numa ordem só. O buffer também
+absorve rajadas, porque com ele cheio a produtora espera em vez de acumular
+amostras sem limite. É o mesmo `BufferLimitado` da demonstração de
+produtor-consumidor, agora em uso real.
+
+**Alertas** ([`monitor/eventos.py`](monitor/eventos.py), testáveis sem Docker e
+sem `/proc`): memória de container acima de **80%** do limite, memória da máquina
+acima de **90%**, `OOMKilled` (crítico), reinício e mudança de status de
+container, queda e volta de serviço. Cada regra dispara **na mudança**, não a
+cada amostra: sem isso, um container em 85% encheria a tela com o mesmo alerta a
+cada 5 segundos.
+
+**As três telas** (atualizam a cada 2 s; HTML, CSS e JS próprios, sem framework e
+sem build):
+
+| Tela | Caminho | Conteúdo |
+|---|---|---|
+| Hardware e SO | `/painel/` | cartões de CPU, memória, disco, processos e uptime; gráficos das últimas 90 amostras; CPU por núcleo; tabela de processos |
+| Containers | `/painel/containers.html` | um container por linha, com barra de memória contra o limite, reinícios e `OOMKilled`; ordenável por CPU, memória ou nome |
+| Serviços | `/painel/servicos.html` | estado e tempo de resposta de cada serviço, e a linha do tempo de eventos |
+
+A faixa do topo mostra os alertas conforme chegam, e o cabeçalho mostra o estado
+do próprio coletor: threads vivas, ocupação do buffer, amostras recebidas e
+altura da árvore de eventos.
+
+| Endpoint | Para quê |
+|---|---|
+| `GET /api/resumo` | threads, buffer e contadores das estruturas |
+| `GET /api/nivel1?janela=90` | última amostra do SO e as séries dos gráficos |
+| `GET /api/nivel2?ordenar_por=cpu\|memoria\|nome` | containers |
+| `GET /api/nivel3?minutos=15` | serviços e linha do tempo |
+| `GET /api/eventos?minutos=&severidade=` | consulta por intervalo na árvore |
+| `GET /api/alertas` | retira os alertas da fila (cada um é entregue uma vez) |
+| `GET /api/historico/nivel1?desde=<timestamp>` | corte do histórico por busca binária |
+
+O serviço precisa de dois acessos especiais, declarados no
+[`docker-compose.yml`](docker-compose.yml): o socket do Docker montado **somente
+leitura** (sem ele, a tela de containers mostra o aviso e os outros dois níveis
+continuam funcionando) e `pid: host` com `/:/hostfs:ro`, para o nível 1 enxergar
+os processos e o disco da máquina em vez dos do próprio container.
+
+**Evidência**, com os containers de pé:
+
+```bash
+python evidencia_monitor.py
+```
+
+Confere as 4 threads e os três níveis, derruba o `recomendacoes` com
+`docker compose stop`, confirma o evento crítico na linha do tempo, religa e
+confirma o evento de volta. Roda no CI a cada push, com os containers de
+verdade, e o arquivo gerado fica anexado à execução
+([`evidencias/pi3/README.md`](evidencias/pi3/README.md)).
 
 **Monitor de processo — `scripts/monitor.sh` (Lab 09)**
 
@@ -459,5 +587,18 @@ rubrica, o que levou ao reconciliador, ao disjuntor, ao retry com status
   disjuntor e a publicação depois da resposta. A IA também verificou no código
   do RQ 1.16 que o worker precisava de uma conexão própria (o timeout curto
   quebraria a espera bloqueante por jobs).
+- **Árvore de eventos degenerando (monitor):** a chave dos eventos é o horário, e
+  horários chegam em ordem crescente, o que transforma uma BST sem balanceamento
+  numa lista (altura = n) e faz a consulta por intervalo voltar a custar O(n),
+  exatamente o que a árvore deveria evitar. A primeira versão não tratava isso.
+  Entraram o rebalanceamento por reconstrução, um teste que falha se a altura
+  passar de ~2·log₂(n) e a altura exposta no painel, para dar para ver o efeito
+  rodando.
+- **Serviço que já nascia fora do ar não gerava evento (monitor):** a regra só
+  olhava transições e não havia estado anterior para comparar, então o painel
+  mostrava "fora" sem nada na linha do tempo explicando desde quando. A regra
+  passou a tratar a primeira observação como evento quando o serviço não está no ar.
+- **Barras de memória invisíveis (painel):** a IA usou `span` com `height`, que um
+  elemento inline ignora; corrigido à mão com `display: block`.
 
 </details>

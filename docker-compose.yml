@@ -65,6 +65,40 @@ services:
       - ./estruturas:/code/estruturas
       - ./recomendacoes:/code/recomendacoes
 
+  # Painel de monitoramento do PI3. Sobe o coletor concorrente (3 threads
+  # produtoras + 1 consumidora) no mesmo processo que serve as telas.
+  monitor:
+    build: .
+    restart: always
+    command: ["uvicorn", "monitor.main:app", "--host", "0.0.0.0", "--port", "8002"]
+    environment:
+      # Serviços do nível 3 (health check): nome=url, separados por vírgula.
+      MONITOR_SERVICOS: "api=http://api:8000/,recomendacoes=http://recomendacoes:8001/"
+      MONITOR_INTERVALO_SO: "2"
+      MONITOR_INTERVALO_CONTAINERS: "5"
+      MONITOR_INTERVALO_SERVICOS: "5"
+      MONITOR_DISCO: "/hostfs"
+    ports:
+      - "8002:8002"
+    # Nível 1: sem isto, /proc mostra só os processos do próprio container.
+    # Com o namespace de PID do host, o painel vê os processos da máquina
+    # (em Docker Desktop, da VM que roda os containers).
+    pid: host
+    volumes:
+      # Nível 2: a API da Docker Engine, somente leitura. É o socket do host,
+      # então o monitor vê todos os containers do Compose, inclusive ele mesmo.
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      # Nível 1: raiz do host somente leitura, só para medir o disco.
+      - /:/hostfs:ro
+      - ./monitor:/code/monitor
+      - ./estruturas:/code/estruturas
+      - ./concorrencia:/code/concorrencia
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8002/saude')"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
   worker:
     build: .
     restart: always
