@@ -76,12 +76,15 @@ class ColetorContainers:
     rodando (ver a nota sobre o GIL no README).
     """
 
-    def __init__(self, socket=SOCKET, timeout=5.0, rotulo_projeto=None):
+    def __init__(self, socket=SOCKET, timeout=5.0, rotulo_projeto=None, descobrir_projeto=True):
         self._socket = socket
         self._timeout = timeout
-        # Se informado, só monitora containers do projeto Compose indicado
-        # (rótulo que o Compose coloca em tudo que sobe).
+        # Projeto Compose a monitorar. Com um nome, filtra por ele. Sem nome e
+        # com descobrir_projeto, o coletor acha sozinho o projeto do próprio
+        # monitor (ver _descobrir_projeto). Sem nome e sem descoberta, mostra
+        # todos os containers da máquina.
         self._rotulo_projeto = rotulo_projeto
+        self._projeto_resolvido = rotulo_projeto is not None or not descobrir_projeto
         self._cliente = None
 
     def _conectar(self):
@@ -106,13 +109,45 @@ class ColetorContainers:
                 "containers": [],
             }
 
+        if not self._projeto_resolvido:
+            self._rotulo_projeto = self._descobrir_projeto(lista)
+            self._projeto_resolvido = True
+
         containers = []
         for resumo in lista:
             rotulos = resumo.get("Labels") or {}
             if self._rotulo_projeto and rotulos.get("com.docker.compose.project") != self._rotulo_projeto:
                 continue
             containers.append(self._detalhar(cliente, resumo))
-        return {"disponivel": True, "motivo": None, "containers": containers}
+        return {
+            "disponivel": True,
+            "motivo": None,
+            "projeto": self._rotulo_projeto,
+            "containers": containers,
+        }
+
+    @staticmethod
+    def _descobrir_projeto(lista, caminho_hostname="/etc/hostname"):
+        """
+        Descobre a que projeto Compose o próprio monitor pertence, para a tela 2
+        não misturar containers de outros projetos da máquina (numa máquina de
+        desenvolvimento isso vira dezenas de linhas que não são do Origem).
+
+        O truque: dentro de um container, o hostname é o começo do próprio id.
+        Achamos esse id na lista e lemos o rótulo que o Compose colocou nele.
+        Rodando fora do Docker, nada casa e devolvemos None, que não filtra.
+        """
+        try:
+            with open(caminho_hostname, encoding="utf-8") as arquivo:
+                meu_id = arquivo.read().strip()
+        except OSError:
+            return None
+        if not meu_id:
+            return None
+        for resumo in lista:
+            if resumo.get("Id", "").startswith(meu_id):
+                return (resumo.get("Labels") or {}).get("com.docker.compose.project")
+        return None
 
     def _detalhar(self, cliente, resumo):
         id_curto = resumo["Id"][:12]

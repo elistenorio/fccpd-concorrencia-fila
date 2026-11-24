@@ -103,6 +103,7 @@ def nivel2(ordenar_por: str = Query("cpu", enum=["cpu", "memoria", "nome"])):
     return {
         "disponivel": ultima.get("disponivel", False),
         "motivo": ultima.get("motivo"),
+        "projeto": ultima.get("projeto"),
         "timestamp": ultima.get("timestamp"),
         "containers": coletor.estado.containers(ordenar_por=ordenar_por),
         "limite_memoria_pct": LIMITE_MEMORIA_PCT,

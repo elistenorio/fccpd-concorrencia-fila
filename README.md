@@ -566,6 +566,14 @@ leitura** (sem ele, a tela de containers mostra o aviso e os outros dois níveis
 continuam funcionando) e `pid: host` com `/:/hostfs:ro`, para o nível 1 enxergar
 os processos e o disco da máquina em vez dos do próprio container.
 
+**A tela 2 mostra só os containers deste projeto.** Numa máquina de
+desenvolvimento costuma haver containers de vários projetos, e o painel
+misturaria tudo. O monitor descobre sozinho a que projeto Compose ele pertence:
+dentro de um container, o hostname é o começo do próprio id, então ele se acha
+na lista do Docker e lê o rótulo que o Compose colocou nele. Para monitorar
+outro projeto, ou a máquina inteira, use `MONITOR_PROJETO` com o nome do projeto
+ou com `TODOS`. O projeto em uso aparece no cabeçalho da tela.
+
 **Por que todo serviço tem `mem_limit`.** Container sem limite faz a API do
 Docker reportar como limite a memória total da máquina: a tela 2 mostraria todo
 mundo em 1% ou 2% e o alerta de 80% nunca dispararia em serviço nenhum. Com

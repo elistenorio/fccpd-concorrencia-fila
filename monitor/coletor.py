@@ -67,10 +67,15 @@ class Coletor:
             servicos = parse_servicos(do_ambiente) if do_ambiente else SERVICOS_PADRAO
 
         self._so = ColetorSO()
-        # Sem MONITOR_PROJETO, o nível 2 mostra todos os containers da máquina.
-        # Com ele, só os do projeto Compose indicado (útil se houver outros
-        # containers rodando na máquina de quem apresenta).
-        self._containers = ColetorContainers(rotulo_projeto=os.getenv("MONITOR_PROJETO") or None)
+        # Sem MONITOR_PROJETO, o nível 2 descobre sozinho a que projeto Compose
+        # o monitor pertence e mostra só os containers desse projeto. Com
+        # MONITOR_PROJETO=TODOS, mostra todos os containers da máquina; com um
+        # nome, mostra os daquele projeto.
+        projeto = os.getenv("MONITOR_PROJETO") or None
+        if projeto == "TODOS":
+            self._containers = ColetorContainers(descobrir_projeto=False)
+        else:
+            self._containers = ColetorContainers(rotulo_projeto=projeto)
         self._servicos = ColetorServicos(servicos)
 
         # Contadores por thread, só para o painel mostrar que todas estão vivas.

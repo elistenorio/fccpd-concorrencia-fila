@@ -64,9 +64,10 @@ async function atualizarTela() {
   const ordem = document.getElementById("ordem").value;
   const dados = await buscar(`/api/nivel2?ordenar_por=${ordem}`);
   document.getElementById("limite").textContent = dados.limite_memoria_pct;
-  document.getElementById("coletado-em").textContent = dados.timestamp
-    ? `· coletado às ${formatarHora(dados.timestamp)}`
-    : "";
+  const projeto = dados.projeto ? `· projeto ${escapar(dados.projeto)} ` : "· todos os projetos da máquina ";
+  document.getElementById("coletado-em").innerHTML = dados.timestamp
+    ? `${projeto}· coletado às ${formatarHora(dados.timestamp)}`
+    : projeto;
 
   document.getElementById("aviso-docker").innerHTML = dados.disponivel
     ? ""

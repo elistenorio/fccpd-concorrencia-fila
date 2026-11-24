@@ -170,3 +170,39 @@ def test_parse_servicos_do_ambiente():
     )
     assert parse_servicos("") == ()
     assert parse_servicos("sem_url") == ()
+
+
+def test_descobre_sozinho_o_projeto_compose_do_proprio_monitor(tmp_path):
+    # Numa máquina de desenvolvimento há containers de vários projetos; a tela 2
+    # tem que mostrar só os do Origem, sem ninguém configurar nada. Dentro de um
+    # container, o hostname é o começo do próprio id.
+    from monitor.nivel2_containers import ColetorContainers
+
+    hostname = tmp_path / "hostname"
+    hostname.write_text("abc123def456\n", encoding="utf-8")
+    lista = [
+        {"Id": "abc123def4567890", "Labels": {"com.docker.compose.project": "origem"}},
+        {"Id": "ffff00001111", "Labels": {"com.docker.compose.project": "outro"}},
+    ]
+    assert ColetorContainers._descobrir_projeto(lista, str(hostname)) == "origem"
+
+
+def test_sem_container_correspondente_nao_filtra_nada(tmp_path):
+    from monitor.nivel2_containers import ColetorContainers
+
+    # Rodando fora do Docker, o hostname não casa com container nenhum:
+    # melhor mostrar tudo que esconder tudo.
+    hostname = tmp_path / "hostname"
+    hostname.write_text("maquina-de-alguem\n", encoding="utf-8")
+    lista = [{"Id": "0000", "Labels": {"com.docker.compose.project": "outro"}}]
+    assert ColetorContainers._descobrir_projeto(lista, str(hostname)) is None
+    # E sem o arquivo nenhum, também não quebra.
+    assert ColetorContainers._descobrir_projeto(lista, str(tmp_path / "nao-existe")) is None
+
+
+def test_projeto_informado_desliga_a_descoberta():
+    from monitor.nivel2_containers import ColetorContainers
+
+    assert ColetorContainers(rotulo_projeto="origem")._projeto_resolvido is True
+    assert ColetorContainers(descobrir_projeto=False)._projeto_resolvido is True
+    assert ColetorContainers()._projeto_resolvido is False

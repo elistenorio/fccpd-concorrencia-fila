@@ -112,9 +112,10 @@ services:
       MONITOR_INTERVALO_CONTAINERS: "5"
       MONITOR_INTERVALO_SERVICOS: "5"
       MONITOR_DISCO: "/hostfs"
-      # Sem isto, a tela 2 mostra todos os containers da máquina. Descomente
-      # com o nome do projeto Compose para ver só os do Origem.
-      # MONITOR_PROJETO: "origem"
+      # Sem isto, o monitor descobre sozinho a que projeto Compose ele
+      # pertence e mostra só os containers desse projeto. Use o nome de outro
+      # projeto para monitorá-lo, ou TODOS para ver a máquina inteira.
+      # MONITOR_PROJETO: "TODOS"
     ports:
       - "8002:8002"
     # Nível 1: sem isto, /proc mostra só os processos do próprio container.
