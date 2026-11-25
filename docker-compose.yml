@@ -91,6 +91,21 @@ services:
     volumes:
       - ./app:/code/app
 
+  monitor:
+    build: .
+    restart: always
+    # Painel de AED + Infra de Software (http://localhost:8002). pid: host faz o
+    # /proc do container mostrar os processos da máquina inteira, então o
+    # coletor enxerga api, workers, postgres e redis dos outros containers.
+    pid: host
+    command: ["uvicorn", "monitor.servidor:app", "--host", "0.0.0.0", "--port", "8002"]
+    ports:
+      - "8002:8002"
+    volumes:
+      - ./estruturas:/code/estruturas
+      - ./concorrencia:/code/concorrencia
+      - ./monitor:/code/monitor
+
 volumes:
   pgdata:
   redisdata:

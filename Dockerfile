@@ -8,5 +8,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY ./app ./app
 COPY ./estruturas ./estruturas
 COPY ./recomendacoes ./recomendacoes
+COPY ./concorrencia ./concorrencia
+COPY ./monitor ./monitor
 
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]

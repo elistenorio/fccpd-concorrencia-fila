@@ -9,7 +9,8 @@
 
 Backend do marketplace de artesanato Origem, projeto integrado de três
 disciplinas: [**FCCPD**](#fccpd-parte-2-u2--arquitetura-distribuída-e-desempenho),
-[**AED**](#aed) e [**Infraestrutura de Software**](#infraestrutura-de-software).
+[**AED**](#aed) e [**Infraestrutura de Software**](#infraestrutura-de-software)
+(as duas aparecem rodando no [painel do monitor](#painel-do-monitor-aed--infra)).
 
 **FCCPD:** Aguinaldo Neto, Caliel Feijó, Elis Tenório, Eulália Albuquerque, Giulia Ferreira e Sarah Cyrne  
 **AED e Infraestrutura de Software:** Caliel Feijó, Eulália Albuquerque e Giulia Ferreira
@@ -22,8 +23,8 @@ docker compose exec api python -m app.seed      # histórico de compras para as 
 curl -X POST "http://localhost:8001/recomendacoes/recalcular?modo=processos"
 ```
 
-Sobe 8 containers: `postgres`, `redis`, `api` (`:8000`), 3 réplicas de
-`worker`, `reconciliador` e `recomendacoes` (`:8001`). O seed cria 2000
+Sobe 9 containers: `postgres`, `redis`, `api` (`:8000`), 3 réplicas de
+`worker`, `reconciliador`, `recomendacoes` (`:8001`) e `monitor` (`:8002`, o [painel](#painel-do-monitor-aed--infra)). O seed cria 2000
 produtos, 10 mil clientes e 80 mil pedidos (apaga tudo, menos o produto 1 dos testes).
 
 ## Endpoints
@@ -350,17 +351,17 @@ array. Nas partes avaliadas não usamos `list.append/pop/sort`, `dict`, `set`,
 |---|---|---|---|---|
 | Lista encadeada | `estruturas/lista.py` (usada em `ordenacao.py`) | Copiar entrada de tamanho desconhecido numa passada | início/fim O(1); busca O(n) | `pronto` |
 | Pilha | `estruturas/pilha.py` (usada em `arvore_busca.py`) | Percorrer a árvore sem recursão (evita estouro no caso degenerado) | O(1) | `pronto` |
-| Fila | `estruturas/fila.py` | FIFO sem limite; timeline de eventos do monitor | O(1) | `pronto` · uso `planejado` |
-| Fila circular | `estruturas/fila_circular.py` (usada em `concorrencia/buffer.py`) | Buffer do produtor-consumidor com memória fixa | O(1); memória O(capacidade) | `pronto` |
-| Tabela hash | `estruturas/tabela_hash.py` | Acesso por chave: estado por container, clientes por produto | O(1) médio, O(n) pior; redimensiona em 0,75 | `pronto` · uso `planejado` |
-| Árvore binária de busca | `estruturas/arvore_busca.py` | Eventos por timestamp com consulta por intervalo | O(h): ~O(log n), O(n) degenerada | `pronto` · uso `planejado` |
+| Fila | `estruturas/fila.py` (usada em `monitor/coletor.py`) | FIFO sem limite; feed de eventos do monitor | O(1) | `pronto` |
+| Fila circular | `estruturas/fila_circular.py` (usada em `concorrencia/buffer.py` e `monitor/coletor.py`) | Buffer do produtor-consumidor e histórico das últimas 120 amostras, com memória fixa | O(1); memória O(capacidade) | `pronto` |
+| Tabela hash | `estruturas/tabela_hash.py` (usada em `monitor/coletor.py`) | Acesso por chave: estado por PID e histórico por serviço | O(1) médio, O(n) pior; redimensiona em 0,75 | `pronto` |
+| Árvore binária de busca | `estruturas/arvore_busca.py` (usada em `monitor/coletor.py`) | Eventos por timestamp com consulta por intervalo (`intervalo()`, O(h + k)) | O(h): ~O(log n), O(n) degenerada | `pronto` |
 | Insertion / selection sort | `estruturas/ordenacao.py` | Base de comparação; insertion também no quick sort (< 16 elementos) | O(n²) (insertion O(n) quase ordenado) | `pronto` |
-| Top-K | `estruturas/top_k.py` (usado em `recomendacoes/calculo.py`) | Top-10 entre ~2000 candidatos sem ordenar todos | O(n·k) pior, ~O(n) na prática | `pronto` |
-| Merge sort | `estruturas/ordenacao.py` | Timeline por horário; estável | O(n log n); memória O(n) | `pronto` · uso `planejado` |
-| Quick sort | `estruturas/ordenacao.py` | Processos por CPU/memória; pivô mediana de três | O(n log n) médio | `pronto` · uso `planejado` |
-| Busca sequencial / binária | `estruturas/busca.py` | Binária para amostras por timestamp no histórico | O(n) / O(log n) | `pronto` · uso `planejado` |
+| Top-K | `estruturas/top_k.py` (usado em `recomendacoes/calculo.py` e `monitor/coletor.py`) | Top-10 entre ~2000 candidatos sem ordenar todos | O(n·k) pior, ~O(n) na prática | `pronto` |
+| Merge sort | `estruturas/ordenacao.py` (usado em `monitor/coletor.py`) | Processos por nome; estável (empates mantêm a ordem de PID) | O(n log n); memória O(n) | `pronto` |
+| Quick sort | `estruturas/ordenacao.py` (usado em `monitor/coletor.py`) | Processos por CPU/memória; pivô mediana de três | O(n log n) médio | `pronto` |
+| Busca sequencial / binária | `estruturas/busca.py` (binária usada em `monitor/coletor.py`) | Binária acha no histórico a última amostra que o navegador já tem (polling incremental) | O(n) / O(log n) | `pronto` |
 
-`pronto` = implementado e testado · `planejado` = uso previsto no coletor e no dashboard do monitor
+`pronto` = implementado, testado e em uso. Todas aparecem rodando no [painel](#painel-do-monitor-aed--infra).
 
 **Testes** (sem Docker): [`tests/test_estruturas.py`](tests/test_estruturas.py) e [`tests/test_ordenacao_busca.py`](tests/test_ordenacao_busca.py)
 
@@ -403,6 +404,7 @@ recomendações da FCCPD) usamos processos.
 | Condição de corrida com threads | `concorrencia/estatisticas.py`, `concorrencia/demo_corrida.py` | "ler → somar → gravar" não é atômico; o `Lock` torna a seção crítica exclusiva | `pronto` |
 | Condição de corrida no banco | `app/main.py` (`FOR UPDATE`), `test_concorrencia.py --controle-negativo` | Duas compras do último item; sem lock, vende a mais | `pronto` (FCCPD) |
 | Monitor via comandos do SO | `scripts/monitor.sh` | CPU/memória via `top`; RSS, threads e estado via `ps` | `pronto` |
+| Coletor com threads + `/proc` | `monitor/coletor.py` | 2 produtores lendo `/proc` → `BufferLimitado` → 1 consumidor; pausar o consumidor enche o buffer e faz os produtores dormirem | `pronto` |
 
 **Demonstração** (3 produtores × 2000 itens, 3 consumidores):
 
@@ -428,6 +430,31 @@ reproduzível (por causa do GIL ela seria rara); o `Lock` corrige com ou sem o `
 - Para quando o processo termina; `Ctrl+C` também imprime o resumo (CPU média e máxima, RSS médio, máximo de threads).
 
 </details>
+
+## Painel do monitor (AED + Infra)
+
+Frontend que mostra as duas disciplinas **rodando**: o navegador só desenha, e
+quem executa é o código Python do repositório (`estruturas/`, `concorrencia/` e `monitor/`).
+
+```bash
+docker compose up -d --build monitor      # http://localhost:8002
+# ou, sem Docker (Linux; no Windows/macOS só as abas 2 e 3 funcionam):
+pip install fastapi uvicorn && python -m monitor
+```
+
+| Aba | O que mostra | Código |
+|---|---|---|
+| **Monitor ao vivo** | 3 threads do coletor (estado em tempo real), o buffer circular enchendo e esvaziando, CPU/memória, serviços do compose, processos e eventos. **Pausar consumidor** enche o buffer e os produtores aparecem bloqueados em `_nao_cheio` | `monitor/coletor.py` |
+| **Condição de corrida** | A `demo_corrida` sem e com lock, com o gráfico de itens retirados × contados (a área entre as linhas são as atualizações perdidas) | `monitor/corrida.py` |
+| **Estruturas (AED)** | Laboratório: cada botão chama o método real (lista, pilha, fila, fila circular, hash, árvore, top-K) e desenha os nós que estão na memória; ordenação conta comparações dos 4 algoritmos; busca anima os índices visitados | `monitor/aed.py` |
+
+O serviço `monitor` usa `pid: host` para que o `/proc` do container mostre os
+processos de todos os containers (api, workers, postgres, redis).
+
+**Observação de AED medida no próprio painel:** os eventos entram na
+`ArvoreBusca` com timestamp crescente, então ela degenera (altura = nº de
+eventos). Por isso o coletor limita a 500 eventos; uma árvore balanceada (AVL)
+resolveria.
 
 ## Declaração de uso de Inteligência Artificial (Critério 6)
 

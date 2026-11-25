@@ -1,0 +1,243 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Origem · Painel</title>
+<link rel="stylesheet" href="/static/estilo.css">
+</head>
+<body>
+<header class="topo">
+  <div class="marca">
+    <strong class="logo">Origem</strong>
+    <span class="selo-painel">Painel técnico · AED + Infraestrutura de Software</span>
+  </div>
+  <span id="status" class="pilula">conectando…</span>
+</header>
+<nav class="abas" role="tablist">
+  <button role="tab" data-aba="monitor" aria-selected="true">Monitor ao vivo</button>
+  <button role="tab" data-aba="corrida" aria-selected="false">Condição de corrida</button>
+  <button role="tab" data-aba="aed" aria-selected="false">Estruturas (AED)</button>
+</nav>
+
+<main>
+<!-- ============================================================ MONITOR -->
+<section id="aba-monitor" class="aba">
+  <div id="sem-proc" class="aviso" hidden>
+    <strong>/proc indisponível nesta máquina.</strong>
+    O coletor lê o <code>/proc</code> do Linux. No Windows/macOS, suba pelo Docker:
+    <code>docker compose up -d monitor</code> e abra <code>http://localhost:8002</code>.
+    As abas <em>Condição de corrida</em> e <em>Estruturas</em> funcionam em qualquer sistema.
+  </div>
+
+  <div class="kpis">
+    <div class="kpi"><span>CPU do sistema</span><b id="k-cpu">–</b><small id="k-nucleos"></small></div>
+    <div class="kpi"><span>Memória</span><b id="k-mem">–</b><small id="k-memtotal"></small></div>
+    <div class="kpi"><span>Processos</span><b id="k-proc">–</b><small>lidos do /proc a cada varredura</small></div>
+    <div class="kpi"><span>Amostras</span><b id="k-amostras">–</b><small id="k-amostras-sub"></small></div>
+  </div>
+
+  <article class="painel">
+    <header>
+      <div>
+        <h2>Pipeline produtor-consumidor</h2>
+        <p>Três threads reais do coletor. O buffer é a <code>FilaCircular</code> protegida por <code>Lock</code> + 2 <code>Condition</code> (<code>concorrencia/buffer.py</code>).</p>
+      </div>
+      <div class="controles">
+        <label class="campo">Intervalo
+          <select id="intervalo">
+            <option value="0.25">0,25 s</option>
+            <option value="0.5">0,5 s</option>
+            <option value="1" selected>1 s</option>
+            <option value="2">2 s</option>
+          </select>
+        </label>
+        <button id="pausar" class="botao primario">Pausar consumidor</button>
+      </div>
+    </header>
+    <div class="pipeline">
+      <div class="col-produtores">
+        <div class="thread" data-thread="produtor-sistema">
+          <span class="rotulo">produtor-sistema</span>
+          <small>/proc/stat · /proc/meminfo</small>
+          <span class="estado">–</span>
+        </div>
+        <div class="thread" data-thread="produtor-processos">
+          <span class="rotulo">produtor-processos</span>
+          <small>/proc/&lt;pid&gt;/stat · status</small>
+          <span class="estado">–</span>
+        </div>
+      </div>
+      <div class="seta" aria-hidden="true">colocar() →</div>
+      <div class="col-buffer">
+        <svg id="anel" viewBox="0 0 220 220" role="img" aria-label="Buffer circular"></svg>
+        <div class="legenda-anel">
+          <span><i class="ponto sistema"></i>sistema</span>
+          <span><i class="ponto processos"></i>processos</span>
+          <span><i class="ponto inicio"></i>_inicio</span>
+        </div>
+      </div>
+      <div class="seta" aria-hidden="true">→ retirar()</div>
+      <div class="col-consumidor">
+        <div class="thread" data-thread="consumidor">
+          <span class="rotulo">consumidor</span>
+          <small>calcula % de CPU · grava o estado</small>
+          <span class="estado">–</span>
+        </div>
+        <ul class="destinos" id="destinos"></ul>
+      </div>
+    </div>
+    <div class="contadores" id="contadores"></div>
+  </article>
+
+  <div class="grade-2">
+    <article class="painel">
+      <header>
+        <div>
+          <h2>CPU e memória do sistema</h2>
+          <p>Histórico numa <code>FilaCircular(120, sobrescrever=True)</code>. O navegador pede só as amostras novas: <code>busca_binaria</code> acha a última que ele já tem.</p>
+        </div>
+        <div class="legenda"><span><i class="traco s1"></i>CPU</span><span><i class="traco s2"></i>Memória</span></div>
+      </header>
+      <svg id="grafico-sistema" class="grafico" viewBox="0 0 600 220" preserveAspectRatio="none"></svg>
+      <div class="eixo-x"><span id="gx-ini"></span><span>agora</span></div>
+    </article>
+    <article class="painel">
+      <header>
+        <div>
+          <h2>Top 5 por CPU</h2>
+          <p><code>TopK(5)</code>: O(n·k) sem ordenar os <span id="n-top">n</span> processos.</p>
+        </div>
+      </header>
+      <ol class="top" id="top"></ol>
+    </article>
+  </div>
+
+  <article class="painel">
+    <header>
+      <div>
+        <h2>Serviços do Docker Compose</h2>
+        <p>Processos agrupados pela linha de comando; histórico por serviço numa <code>TabelaHash</code> de <code>FilaCircular</code>.</p>
+      </div>
+    </header>
+    <div class="servicos" id="servicos"></div>
+  </article>
+
+  <div class="grade-2 larga-esq">
+    <article class="painel">
+      <header>
+        <div>
+          <h2>Processos</h2>
+          <p id="desc-ordem"></p>
+        </div>
+        <div class="segmentado" id="ordem">
+          <button data-ordem="cpu" aria-pressed="true">CPU</button>
+          <button data-ordem="mem" aria-pressed="false">Memória</button>
+          <button data-ordem="nome" aria-pressed="false">Nome</button>
+          <button data-ordem="pid" aria-pressed="false">PID</button>
+        </div>
+      </header>
+      <div class="tabela-rolagem">
+        <table class="tabela">
+          <thead><tr><th>PID</th><th>Nome</th><th>Serviço</th><th class="num">CPU %</th><th class="num">RSS</th><th class="num">Threads</th><th>Estado</th></tr></thead>
+          <tbody id="processos"></tbody>
+        </table>
+      </div>
+    </article>
+    <article class="painel">
+      <header>
+        <div>
+          <h2>Eventos</h2>
+          <p><code>ArvoreBusca</code> por (timestamp, seq); <code>intervalo()</code> devolve a janela escolhida.</p>
+        </div>
+        <select id="janela" aria-label="Janela de eventos">
+          <option value="60">1 min</option>
+          <option value="300" selected>5 min</option>
+          <option value="100000">tudo</option>
+        </select>
+      </header>
+      <p class="nota" id="nota-arvore"></p>
+      <ul class="eventos" id="eventos"></ul>
+    </article>
+  </div>
+</section>
+
+<!-- ============================================================ CORRIDA -->
+<section id="aba-corrida" class="aba" hidden>
+  <article class="painel">
+    <header>
+      <div>
+        <h2>Produtor-consumidor com e sem lock</h2>
+        <p>Roda <code>concorrencia/demo_corrida.py</code> no servidor, duas vezes, com threads de verdade. A diferença entre <b>retirados</b> do buffer e <b>contados</b> nas estatísticas são as atualizações perdidas.</p>
+      </div>
+    </header>
+    <form id="form-corrida" class="form-linha">
+      <label class="campo">Produtores <input type="number" name="produtores" value="3" min="1" max="8"></label>
+      <label class="campo">Consumidores <input type="number" name="consumidores" value="3" min="1" max="8"></label>
+      <label class="campo">Itens por produtor <input type="number" name="itens" value="2000" min="10" max="10000" step="10"></label>
+      <label class="campo">Capacidade do buffer <input type="number" name="capacidade" value="16" min="1" max="256"></label>
+      <button class="botao primario" type="submit">Rodar as duas versões</button>
+    </form>
+  </article>
+
+  <div class="grade-2 igual">
+    <article class="painel corrida" id="c-sem">
+      <header><div><h2>Sem lock <span class="selo erro" hidden>ERRADO</span></h2><p><code>EstatisticasInseguras</code></p></div></header>
+      <div class="placar vazio">Rode para ver o resultado.</div>
+      <svg class="grafico" viewBox="0 0 600 200" preserveAspectRatio="none"></svg>
+      <div class="legenda"><span><i class="traco s3"></i>retirados do buffer</span><span><i class="traco s1"></i>contados</span><span><i class="area-perda"></i>perdidos</span></div>
+      <svg class="grafico mini" viewBox="0 0 600 60" preserveAspectRatio="none"></svg>
+      <small class="nota">ocupação do buffer ao longo do tempo</small>
+    </article>
+    <article class="painel corrida" id="c-com">
+      <header><div><h2>Com lock <span class="selo ok" hidden>CORRETO</span></h2><p><code>EstatisticasSeguras</code></p></div></header>
+      <div class="placar vazio">Rode para ver o resultado.</div>
+      <svg class="grafico" viewBox="0 0 600 200" preserveAspectRatio="none"></svg>
+      <div class="legenda"><span><i class="traco s3"></i>retirados do buffer</span><span><i class="traco s1"></i>contados</span></div>
+      <svg class="grafico mini" viewBox="0 0 600 60" preserveAspectRatio="none"></svg>
+      <small class="nota">ocupação do buffer ao longo do tempo</small>
+    </article>
+  </div>
+
+  <article class="painel">
+    <header><div><h2>Por que se perde</h2><p><code>registrar()</code> faz ler → somar → gravar em três passos. Se a troca de contexto cai no meio, duas threads gravam o mesmo valor.</p></div></header>
+    <div class="intercalacao">
+      <div class="linha-t"><span class="t">Thread A</span><span class="passo">lê total = 41</span><span></span><span class="passo">grava 42</span><span></span></div>
+      <div class="linha-t"><span class="t">Thread B</span><span></span><span class="passo">lê total = 41</span><span></span><span class="passo perda">grava 42 ✗</span></div>
+      <div class="linha-t eixo"><span></span><span>t1</span><span>t2 (sleep(0))</span><span>t3</span><span>t4</span></div>
+    </div>
+    <p class="nota">Dois itens processados, total subiu 1. Com <code>with self._lock:</code> a seção crítica é exclusiva: B só lê depois que A gravou.</p>
+  </article>
+</section>
+
+<!-- ============================================================ AED -->
+<section id="aba-aed" class="aba" hidden>
+  <nav class="sub-abas" id="sub-aed">
+    <button data-est="lista" aria-pressed="true">Lista encadeada</button>
+    <button data-est="pilha" aria-pressed="false">Pilha</button>
+    <button data-est="fila" aria-pressed="false">Fila</button>
+    <button data-est="anel" aria-pressed="false">Fila circular</button>
+    <button data-est="hash" aria-pressed="false">Tabela hash</button>
+    <button data-est="arvore" aria-pressed="false">Árvore de busca</button>
+    <button data-est="top" aria-pressed="false">Top-K</button>
+    <button data-est="ordenacao" aria-pressed="false">Ordenação</button>
+    <button data-est="busca" aria-pressed="false">Busca</button>
+  </nav>
+  <article class="painel" id="lab">
+    <header>
+      <div><h2 id="lab-titulo"></h2><p id="lab-desc"></p></div>
+      <span class="pilula neutra" id="lab-complex"></span>
+    </header>
+    <div class="form-linha" id="lab-controles"></div>
+    <div id="lab-desenho" class="desenho"></div>
+    <div class="log" id="lab-log" aria-live="polite"></div>
+  </article>
+</section>
+</main>
+
+<footer class="rodape">
+  Tudo que aparece aqui é o código Python do repositório rodando no servidor — <code>estruturas/</code>, <code>concorrencia/</code> e <code>monitor/</code>.
+</footer>
+<script src="/static/app.js"></script>
+</body>
+</html>

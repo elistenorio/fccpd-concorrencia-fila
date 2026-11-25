@@ -129,6 +129,29 @@ class ArvoreBusca:
             yield atual.chave, atual.valor
             atual = atual.direita
 
+    def intervalo(self, inicio, fim):
+        """
+        Pares (chave, valor) com inicio <= chave <= fim, em ordem crescente.
+
+        Mesmo percurso do em_ordem, mas só desce à esquerda quando ainda pode
+        haver chaves >= inicio e para ao passar de fim: O(h + k), k = resultados.
+        """
+        pilha = Pilha()
+        atual = self._raiz
+        while atual is not None or not pilha.vazia():
+            while atual is not None:
+                if atual.chave < inicio:
+                    # Tudo à esquerda é ainda menor: nem empilha.
+                    atual = atual.direita
+                else:
+                    pilha.empilhar(atual)
+                    atual = atual.esquerda
+            atual = pilha.desempilhar()
+            if atual.chave > fim:
+                return
+            yield atual.chave, atual.valor
+            atual = atual.direita
+
     def altura(self) -> int:
         """Número de níveis (árvore vazia = 0). Percorre por níveis com uma pilha."""
         if self._raiz is None:
