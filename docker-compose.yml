@@ -2,6 +2,7 @@ services:
   postgres:
     image: postgres:16
     restart: always
+    mem_limit: 512m
     environment:
       POSTGRES_USER: fccpd
       POSTGRES_PASSWORD: fccpd
@@ -19,6 +20,7 @@ services:
   redis:
     image: redis:7
     restart: always
+    mem_limit: 256m
     command: redis-server --appendonly yes
     ports:
       - "6379:6379"
@@ -28,6 +30,7 @@ services:
   api:
     build: .
     restart: always
+    mem_limit: 256m
     env_file: .env
     depends_on:
       postgres:
@@ -38,6 +41,8 @@ services:
       - "8000:8000"
     volumes:
       - ./app:/code/app
+      - ./estruturas:/code/estruturas
+      - ./dominio:/code/dominio
     # A api é dona do schema de produtos/pedidos (cria e migra ao subir); o
     # healthy indica que isso terminou e libera quem depende dessas tabelas.
     healthcheck:
@@ -49,6 +54,9 @@ services:
   recomendacoes:
     build: .
     restart: always
+    # Pico medido: 242 MiB com 8 processos no recálculo (85 MiB parado). Cada
+    # processo filho conta no mesmo cgroup, então mais workers = mais memória.
+    mem_limit: 512m
     env_file: .env
     depends_on:
       api:
@@ -68,6 +76,7 @@ services:
   worker:
     build: .
     restart: always
+    mem_limit: 128m
     env_file: .env
     depends_on:
       - redis
@@ -81,6 +90,7 @@ services:
   reconciliador:
     build: .
     restart: always
+    mem_limit: 128m
     env_file: .env
     depends_on:
       postgres:
@@ -94,16 +104,37 @@ services:
   monitor:
     build: .
     restart: always
-    # Painel de AED + Infra de Software (http://localhost:8002). pid: host faz o
-    # /proc do container mostrar os processos da máquina inteira, então o
-    # coletor enxerga api, workers, postgres e redis dos outros containers.
+    mem_limit: 256m
+    # Painel de AED + Infra de Software (http://localhost:8002), 3 níveis:
+    #  1. pid: host faz o /proc do container mostrar a máquina inteira (no Docker
+    #     Desktop, a VM Linux do WSL2), então o coletor enxerga todos os processos.
+    #  2. docker.sock SOMENTE LEITURA: status, CPU, memória/limite, reinícios,
+    #     OOMKilled e o fluxo de eventos dos containers (o monitor só faz GET).
+    #  3. sondas nos serviços pela rede do compose (HTTP, RESP do Redis, Postgres).
     pid: host
     command: ["uvicorn", "monitor.servidor:app", "--host", "0.0.0.0", "--port", "8002"]
+    environment:
+      MONITOR_SONDAS: "api=http://api:8000/,recomendacoes=http://recomendacoes:8001/,postgres=pg://postgres:5432,redis=redis://redis:6379"
+      MONITOR_LIMITE_MEM: "85"
+      MONITOR_LIMITE_LATENCIA_MS: "500"
     ports:
       - "8002:8002"
     volumes:
       - ./estruturas:/code/estruturas
       - ./concorrencia:/code/concorrencia
+      - ./monitor:/code/monitor
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+
+  # Demo de OOM (não sobe no `up` normal): docker compose --profile demo up estresse-memoria
+  # Aloca 4 MB por segundo até o kernel matar o processo pelo mem_limit.
+  estresse-memoria:
+    build: .
+    profiles: ["demo"]
+    restart: "no"
+    mem_limit: 128m
+    memswap_limit: 128m
+    command: ["python", "-m", "monitor.estresse"]
+    volumes:
       - ./monitor:/code/monitor
 
 volumes:

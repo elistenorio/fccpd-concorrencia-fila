@@ -4,7 +4,7 @@ Servidor do painel: API JSON + arquivos estáticos (monitor/static).
     uvicorn monitor.servidor:app --port 8002      (ou: python -m monitor)
 
 Rotas:
-    GET  /api/monitor?desde=<ts>&ordem=cpu|mem|nome|pid   estado do coletor
+    GET  /api/monitor?desde=<ts>&ordem=cpu|mem|nome|pid   estado do coletor (3 níveis)
     POST /api/monitor/consumidor?pausado=true|false      pausa o consumidor (o buffer enche)
     POST /api/monitor/intervalo?segundos=0.5             ritmo dos produtores
     POST /api/corrida?produtores=3&consumidores=3&itens=2000&capacidade=16
@@ -32,6 +32,9 @@ ESTATICOS = Path(__file__).parent / "static"
 coletor = Coletor(
     intervalo=float(os.getenv("MONITOR_INTERVALO", "1")),
     limite_cpu=float(os.getenv("MONITOR_LIMITE_CPU", "80")),
+    limite_mem=float(os.getenv("MONITOR_LIMITE_MEM", "85")),
+    limite_latencia_ms=float(os.getenv("MONITOR_LIMITE_LATENCIA_MS", "500")),
+    sondas=os.getenv("MONITOR_SONDAS"),  # None = portas do localhost (rodando fora do Docker)
 )
 laboratorio = Laboratorio()
 

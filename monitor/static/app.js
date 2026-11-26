@@ -31,6 +31,12 @@ const fmt = {
   pct: (n) => `${n.toLocaleString("pt-BR", { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%`,
   mem: (kb) => (kb >= 1048576 ? `${(kb / 1048576).toFixed(1)} GB` : kb >= 1024 ? `${(kb / 1024).toFixed(0)} MB` : `${kb} kB`),
   hora: (ts) => new Date(ts * 1000).toLocaleTimeString("pt-BR"),
+  bytes: (b) => fmt.mem(Math.round(b / 1024)),
+  taxa: (b) => (b >= 1048576 ? `${(b / 1048576).toFixed(1)} MB/s` : b >= 1024 ? `${(b / 1024).toFixed(1)} kB/s` : `${Math.round(b)} B/s`),
+  dur: (s) => (s == null ? "–" : s >= 86400 ? `${Math.floor(s / 86400)} d ${Math.floor((s % 86400) / 3600)} h`
+    : s >= 3600 ? `${Math.floor(s / 3600)} h ${String(Math.floor((s % 3600) / 60)).padStart(2, "0")} min`
+    : s >= 60 ? `${Math.floor(s / 60)} min ${String(s % 60).padStart(2, "0")} s` : `${s} s`),
+  ms: (v) => (v == null ? "–" : `${v.toLocaleString("pt-BR", { maximumFractionDigits: v < 10 ? 2 : 1 })} ms`),
   ns: (ns) => (ns >= 1e6 ? `${(ns / 1e6).toFixed(2)} ms` : ns >= 1e3 ? `${(ns / 1e3).toFixed(1)} µs` : `${ns} ns`),
 };
 
@@ -79,7 +85,8 @@ $$(".abas button").forEach((b) =>
     $$(".abas button").forEach((x) => x.setAttribute("aria-selected", String(x === b)));
     $$(".aba").forEach((s) => (s.hidden = s.id !== `aba-${b.dataset.aba}`));
     if (b.dataset.aba === "aed") abrirEstrutura(estruturaAtual);
-    if (b.dataset.aba === "monitor") desenharMonitor();
+    history.replaceState(null, "", `#${b.dataset.aba}`);  // link direto: /#containers, /#servicos...
+    desenharAbaAtual();
   })
 );
 
@@ -108,7 +115,7 @@ async function atualizarMonitor() {
     if (!d.disponivel) { st.className = "pilula alerta"; st.textContent = "sem /proc"; }
     else if (d.pausado) { st.className = "pilula alerta"; st.textContent = "consumidor pausado"; }
     else { st.className = "pilula ok"; st.textContent = "coletor rodando"; }
-    if (!$("#aba-monitor").hidden) desenharMonitor();
+    desenharAbaAtual();
   } catch (e) {
     mon.falhas++;
     const st = $("#status");
@@ -117,10 +124,28 @@ async function atualizarMonitor() {
   }
 }
 
+/** Só a aba visível é redesenhada (SVG oculto não tem tamanho). A faixa de alertas vale para todas. */
+function desenharAbaAtual() {
+  const d = mon.dados;
+  if (!d) return;
+  desenharFaixa(d);
+  if (!$("#aba-monitor").hidden) desenharMonitor();
+  if (!$("#aba-containers").hidden) desenharContainers(d);
+  if (!$("#aba-servicos").hidden) desenharServicos(d);
+}
+
+function desenharFaixa(d) {
+  const n = d.alertas_ativos.length;
+  const faixa = $("#faixa-alertas");
+  faixa.hidden = !n;
+  faixa.replaceChildren(el("b", { text: `${n} alerta${n > 1 ? "s" : ""} ativo${n > 1 ? "s" : ""}` }),
+    ...d.alertas_ativos.map((a) => el("span", { text: a })));
+}
+
 function classeThread(estado) {
-  if (estado.startsWith("bloqueado")) return "bloqueada";
+  if (estado.startsWith("bloqueado") || estado.startsWith("erro")) return "bloqueada";
   if (estado === "pausado") return "pausada";
-  if (estado.startsWith("dormindo")) return "dormindo";
+  if (estado.startsWith("dormindo") || estado.startsWith("esperando evento")) return "dormindo";
   return "ativa";
 }
 
@@ -134,9 +159,20 @@ function desenharMonitor() {
   $("#k-nucleos").textContent = `${d.nucleos} núcleos lógicos`;
   $("#k-mem").textContent = ult ? fmt.pct(ult.mem) : "–";
   $("#k-memtotal").textContent = ult ? `de ${fmt.mem(ult.mem_total_kb)}` : "";
+  $("#k-disco").textContent = ult && ult.disco_total_kb ? fmt.pct((100 * ult.disco_usado_kb) / ult.disco_total_kb) : "–";
+  $("#k-disco-sub").textContent = ult && ult.disco_total_kb ? `${fmt.mem(ult.disco_usado_kb)} de ${fmt.mem(ult.disco_total_kb)} (statvfs /)` : "";
   $("#k-proc").textContent = fmt.num(d.total_processos);
-  $("#k-amostras").textContent = fmt.num(d.contadores.consumidas || 0);
-  $("#k-amostras-sub").textContent = `consumidas de ${fmt.num(d.contadores.produzidas || 0)} produzidas`;
+  $("#k-proc-sub").textContent = `lidos do /proc · ${fmt.num(d.processos.reduce((s, p) => s + p.threads, 0))} threads nos ${d.processos.length} da tabela`;
+  $("#k-mem").classList.toggle("estourado", !!(ult && ult.mem >= d.limites.mem));
+
+  // CPU por núcleo
+  const nucleos = ult ? ult.nucleos : [];
+  $("#nucleos").replaceChildren(...nucleos.map((v, i) =>
+    el("div", { class: "nucleo" },
+      el("span", { class: "barra-v" }, el("i", { style: `height:${Math.min(100, v)}%` })),
+      el("b", { text: `${Math.round(v)}%` }), el("small", { text: `cpu${i}` }))));
+  $("#k-load").textContent = ult && ult.load1 != null ? `load average (1 min): ${ult.load1.toFixed(2)}` : "";
+  $("#k-oom").textContent = ult && ult.oom_kill != null ? `oom_kill do kernel: ${ult.oom_kill}` : "";
 
   // threads
   for (const t of d.threads) {
@@ -157,6 +193,8 @@ function desenharMonitor() {
     el("li", {}, el("b", { text: "FilaCircular" }), el("span", { text: `histórico ${e.historico_fila.itens}/${e.historico_fila.capacidade}` })),
     el("li", {}, el("b", { text: "ArvoreBusca" }), el("span", { text: `${e.eventos_arvore.itens} eventos · altura ${e.eventos_arvore.altura}` })),
     el("li", {}, el("b", { text: "Fila" }), el("span", { text: `feed ${e.feed_fila.itens} eventos` })),
+    el("li", {}, el("b", { text: "TabelaHash" }), el("span", { text: `${e.containers_tabela.itens} containers` })),
+    el("li", {}, el("b", { text: "alertas" }), el("span", { text: `${fmt.num(d.contadores.alertas || 0)} disparados` })),
   );
   const c = d.contadores;
   $("#contadores").replaceChildren(
@@ -214,18 +252,9 @@ function desenharMonitor() {
       el("td", { class: "num", text: fmt.mem(p.rss_kb) }),
       el("td", { class: "num", text: p.threads }),
       el("td", { text: p.estado }))));
-
-  // eventos (filtra a janela no cliente também, para trocar sem esperar o próximo ciclo)
-  const desde = d.agora - mon.janela;
-  const evs = d.eventos.filter((ev) => ev.ts >= desde).reverse();
-  const arv = d.estruturas.eventos_arvore;
-  $("#nota-arvore").innerHTML = arv.itens > 2
-    ? `Altura ${arv.altura} para ${arv.itens} eventos: os timestamps chegam em ordem crescente, então a árvore degenera em lista (O(n) por inserção). Por isso o coletor guarda no máximo 500.`
-    : "";
-  $("#eventos").replaceChildren(...(evs.length ? evs.map((ev) =>
-    el("li", { class: ev.tipo }, el("time", { text: fmt.hora(ev.ts) }), el("span", { text: ev.texto }))
-  ) : [el("li", { class: "vazio", text: "Nenhum evento na janela. Pause o consumidor para gerar alguns." })]));
 }
+
+const COR_TIPO = { sistema: "s2", processos: "s1", containers: "s3", docker: "s4", servicos: "amarelo" };
 
 function desenharAnelBuffer(b) {
   const svg = $("#anel");
@@ -238,7 +267,7 @@ function desenharAnelBuffer(b) {
     const item = b.posicoes[i];
     svg.append(el("svg:circle", {
       cx: x, cy: y, r: 15,
-      fill: item ? cor(item.tipo === "sistema" ? "s2" : "s1") : cor("superficie"),
+      fill: item ? cor(COR_TIPO[item.tipo] || "s1") : cor("superficie"),
       stroke: i === b.inicio ? cor("texto") : cor("texto-3"),
       "stroke-width": i === b.inicio ? 3 : 1,
     }));
@@ -261,12 +290,102 @@ $$("#ordem button").forEach((b) => b.addEventListener("click", () => {
   $$("#ordem button").forEach((x) => x.setAttribute("aria-pressed", String(x === b)));
   atualizarMonitor();
 }));
-$("#janela").addEventListener("change", (e) => { mon.janela = Number(e.target.value); desenharMonitor(); });
-window.addEventListener("resize", () => { if (!$("#aba-monitor").hidden) desenharMonitor(); });
+$("#janela").addEventListener("change", (e) => { mon.janela = Number(e.target.value); desenharAbaAtual(); });
+window.addEventListener("resize", desenharAbaAtual);
 
 (function laco() {
   atualizarMonitor().finally(() => setTimeout(laco, mon.falhas ? 3000 : 1000));
 })();
+
+/* ================================================================ NÍVEL 2: CONTAINERS */
+
+const COR_STATUS = { running: "ok", exited: "erro", dead: "erro", restarting: "alerta", paused: "alerta", created: "" };
+
+function barraMemoria(c, limiteAlerta) {
+  const pct = c.mem_pct;
+  const classe = pct >= limiteAlerta ? "estourada" : pct >= limiteAlerta * 0.75 ? "alta" : "";
+  return el("div", { class: "barra-mem" },
+    el("span", { class: `trilho ${classe}` }, el("i", { style: `width:${Math.min(100, pct)}%` })),
+    el("small", {}, `${fmt.bytes(c.mem_uso)} / `,
+      c.limite_configurado
+        ? el("b", { text: fmt.bytes(c.mem_limite) })
+        : el("span", { class: "sem-limite", title: "Sem mem_limit: o teto é a memória da VM", text: `${fmt.bytes(c.mem_limite)} (VM)` }),
+      ` · ${fmt.pct(pct)}`));
+}
+
+function desenharContainers(d) {
+  const cs = d.containers;
+  const aviso = $("#sem-docker");
+  aviso.hidden = d.docker.situacao === "ok";
+  aviso.textContent = `Docker indisponível: ${d.docker.situacao}. O serviço monitor precisa do volume /var/run/docker.sock:ro (docker-compose.yml).`;
+  $("#lim-mem").textContent = d.limites.mem;
+
+  const rodando = cs.filter((c) => c.status === "running");
+  $("#k-cont").textContent = `${rodando.length}/${cs.length}`;
+  $("#k-cont-sub").textContent = d.docker.projeto ? `rodando · projeto ${d.docker.projeto}` : "rodando";
+  $("#k-cont-mem").textContent = fmt.bytes(rodando.reduce((s, c) => s + c.mem_uso, 0));
+  $("#k-cont-mem-sub").textContent = `${cs.filter((c) => c.limite_configurado).length} de ${cs.length} com mem_limit`;
+  $("#k-reinicios").textContent = fmt.num(cs.reduce((s, c) => s + c.reinicios, 0));
+  const oom = cs.filter((c) => c.oom_killed).length;
+  $("#k-oomkilled").textContent = oom;
+  $("#k-oomkilled").classList.toggle("estourado", oom > 0);
+
+  const vivo = (c, texto) => (c.status === "running" ? texto : "–");
+  $("#containers").replaceChildren(...(cs.length ? cs.map((c) =>
+    el("tr", { class: c.alerta_mem || c.oom_killed ? "alerta" : null },
+      el("td", {}, el("span", { class: "etiqueta", text: c.servico })),
+      el("td", { text: c.nome, title: c.id }),
+      el("td", {},
+        el("span", { class: `pilula ${COR_STATUS[c.status] ?? ""}`, text: c.saude ? `${c.status} · ${c.saude}` : c.status }),
+        c.status !== "running" && c.codigo_saida != null ? el("small", { class: "codigo", text: ` código ${c.codigo_saida}` }) : null),
+      el("td", { class: "num", text: vivo(c, c.cpu.toFixed(1)) }),
+      el("td", {}, c.status === "running" ? barraMemoria(c, d.limites.mem) : "–"),
+      el("td", { class: "num", text: vivo(c, fmt.taxa(c.rx_s)) }),
+      el("td", { class: "num", text: vivo(c, fmt.taxa(c.tx_s)) }),
+      el("td", { class: "num", text: c.pids || "–" }),
+      el("td", { class: `num${c.reinicios ? " destaque-num" : ""}`, text: c.reinicios }),
+      el("td", {}, c.oom_killed ? el("span", { class: "pilula erro", text: "sim" }) : "não"),
+      el("td", { class: "num", text: fmt.dur(c.no_ar_s) })))
+    : [el("tr", {}, el("td", { colspan: 11, class: "vazio", text: "Nenhum container do projeto encontrado." }))]));
+}
+
+/* ================================================================ NÍVEL 3: SERVIÇOS */
+
+function desenharServicos(d) {
+  $("#sondas").replaceChildren(...d.sondas.map((s) => {
+    const j = s.janela || {};
+    const estado = s.ok == null ? ["", "medindo…"] : s.ok ? ["ok", "no ar"] : ["erro", "fora do ar"];
+    const svg = el("svg:svg", { class: "spark" });
+    const card = el("div", { class: `sonda${s.ok === false ? " fora" : ""}${s.alerta_latencia ? " lenta" : ""}` },
+      el("header", {}, el("b", { text: s.nome }), el("span", { class: `pilula ${estado[0]}`, text: estado[1] })),
+      el("small", { class: "url", text: `${s.url} · ${s.detalhe}` }),
+      el("dl", {},
+        el("dt", { text: "latência média" }), el("dd", { text: fmt.ms(j.media_ms) }),
+        el("dt", { text: "p95" }), el("dd", { text: fmt.ms(j.p95_ms) }),
+        el("dt", { text: "jitter" }), el("dd", { text: fmt.ms(j.jitter_ms) }),
+        el("dt", { text: "perda" }), el("dd", { class: j.perda_pct ? "ruim" : null, text: j.perda_pct == null ? "–" : fmt.pct(j.perda_pct) }),
+        el("dt", { text: s.ok === false ? "fora há" : "no ar há" }), el("dd", { text: fmt.dur(s.estado_ha_s) }),
+        el("dt", { text: "disponibilidade" }), el("dd", { text: `${fmt.pct(s.disponibilidade_pct)} de ${fmt.num(s.total_ok + s.total_falhas)}` })),
+      svg);
+    // Falha vira ponto no teto do gráfico, para a perda aparecer.
+    const validos = s.serie.filter((v) => v != null);
+    const teto = Math.max(20, ...validos) * 1.1;
+    requestAnimationFrame(() => grafico(svg, [{ valores: s.serie.map((v) => (v == null ? teto : v)), cor: cor(s.ok === false ? "erro" : "s2"), area: true }],
+      { max: teto, grades: [0, 1], rotulos: (v) => `${Math.round(v)}` }));
+    return card;
+  }));
+
+  // eventos dos 3 níveis (filtra a janela no cliente também, para trocar sem esperar o próximo ciclo)
+  const desde = d.agora - mon.janela;
+  const evs = d.eventos.filter((ev) => ev.ts >= desde).reverse();
+  const arv = d.estruturas.eventos_arvore;
+  $("#nota-arvore").innerHTML = arv.itens > 2
+    ? `Altura ${arv.altura} para ${arv.itens} eventos: os timestamps chegam em ordem crescente, então a árvore degenera em lista (O(n) por inserção). Por isso o coletor guarda no máximo 500.`
+    : "";
+  $("#eventos").replaceChildren(...(evs.length ? evs.map((ev) =>
+    el("li", { class: ev.tipo }, el("time", { text: fmt.hora(ev.ts) }), el("span", { text: ev.texto }))
+  ) : [el("li", { class: "vazio", text: "Nenhum evento na janela. Pare um serviço (docker compose stop recomendacoes), rode a demo de OOM ou pause o consumidor." })]));
+}
 
 /* ================================================================ CORRIDA */
 
@@ -700,3 +819,7 @@ function animarBusca(r) {
     }
   }, r.valores.length > 64 ? 45 : 90);
 }
+
+/* aba pelo endereço (#monitor, #containers, #servicos, #corrida, #aed); no fim porque a aba AED usa estruturaAtual */
+const abaInicial = $(`.abas button[data-aba="${location.hash.slice(1)}"]`);
+if (abaInicial) abaInicial.click();

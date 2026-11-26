@@ -1,5 +1,6 @@
 """
-Algoritmos de busca. Ambos devolvem o índice do alvo ou -1 se não achar.
+Algoritmos de busca. Os dois primeiros devolvem o índice do alvo ou -1 se não achar;
+limite_inferior devolve onde o alvo entraria (base das buscas por faixa).
 
 | Algoritmo  | Melhor | Pior     | Exige ordenado? |
 |------------|--------|----------|-----------------|
@@ -32,3 +33,20 @@ def busca_binaria(array, alvo, chave=None):
         else:
             fim = meio - 1
     return encontrado
+
+
+def limite_inferior(array, alvo, chave=None):
+    """Primeiro índice com ``chave(item) >= alvo`` (len(array) se nenhum). O(log n).
+
+    Com dois limites_inferiores dá para achar uma faixa [a, b] num array
+    ordenado em O(log n + k): é a busca por faixa de preço do estoque.
+    """
+    inicio, fim = 0, len(array)
+    while inicio < fim:
+        meio = (inicio + fim) // 2
+        valor = array[meio] if chave is None else chave(array[meio])
+        if valor < alvo:
+            inicio = meio + 1
+        else:
+            fim = meio
+    return inicio

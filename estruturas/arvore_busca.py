@@ -146,6 +146,10 @@ class ArvoreBusca:
                 else:
                     pilha.empilhar(atual)
                     atual = atual.esquerda
+            if pilha.vazia():
+                # Desceu só pela direita (tudo era < inicio) e caiu em None:
+                # não sobrou nenhuma chave >= inicio.
+                return
             atual = pilha.desempilhar()
             if atual.chave > fim:
                 return
