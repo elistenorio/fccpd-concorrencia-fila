@@ -201,6 +201,18 @@ def test_arvore_intervalo_com_chaves_tupla():
     assert list(ArvoreBusca().intervalo(0, 10)) == []
 
 
+def test_arvore_intervalo_acima_de_todas_as_chaves():
+    # Regressão: com tudo < inicio, o percurso só desce à direita e a pilha
+    # ficava vazia -> IndexError (500 no /estoque/busca e no /api/monitor quando
+    # todos os eventos ficavam mais velhos que a janela).
+    for chaves in ([1, 2, 3], [3, 2, 1], [2, 1, 3]):
+        arvore = ArvoreBusca()
+        for c in chaves:
+            arvore.inserir(c)
+        assert list(arvore.intervalo(10, 20)) == []
+        assert [c for c, _ in arvore.intervalo(3, 20)] == [3]
+
+
 # --- Top-K ---
 
 def test_top_k_igual_a_ordenar_e_cortar():
