@@ -8,10 +8,11 @@ nativa usada é um bloco de tamanho fixo ``[None] * n`` como "array" (acesso por
 """
 
 from estruturas.arvore_busca import ArvoreBusca
-from estruturas.busca import busca_binaria, busca_sequencial
+from estruturas.busca import busca_binaria, busca_sequencial, limite_inferior
 from estruturas.fila import Fila
 from estruturas.fila_circular import FilaCircular
 from estruturas.lista import ListaEncadeada
+from estruturas.lista_ordenada import ListaOrdenada
 from estruturas.ordenacao import insertion_sort, merge_sort, quick_sort, selection_sort
 from estruturas.pilha import Pilha
 from estruturas.tabela_hash import TabelaHash
@@ -22,12 +23,14 @@ __all__ = [
     "Fila",
     "FilaCircular",
     "ListaEncadeada",
+    "ListaOrdenada",
     "Pilha",
     "TabelaHash",
     "TopK",
     "busca_binaria",
     "busca_sequencial",
     "insertion_sort",
+    "limite_inferior",
     "merge_sort",
     "quick_sort",
     "selection_sort",

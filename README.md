@@ -350,9 +350,124 @@ Pedidos 'processado': 5 de 5 em 16.1s (republicados pelo reconciliador)
 ## AED
 
 <details>
-<summary><b>Clique para ver a parte de AED</b> — estruturas de dados, ordenação e busca próprias (<code>estruturas/</code>)</summary>
+<summary><b>Clique para ver a parte de AED</b> — modelo de domínio (<code>dominio/</code>) e estruturas de dados, ordenação e busca próprias (<code>estruturas/</code>)</summary>
 
 <br>
+
+### Modelo de domínio: estoque, pedidos e histórico
+
+Pacote [`dominio/`](dominio/): o estoque de uma loja de artesanato modelado só com as
+estruturas próprias. Cada entidade usa a estrutura que combina com o jeito de usá-la:
+
+```mermaid
+classDiagram
+    direction LR
+    class Loja {
+        +cadastrar() remover_produto() alterar_preco()
+        +entrada() saida()
+        +registrar_pedido() cancelar_pedido() processar_proximo()
+        +desfazer()
+    }
+    class Estoque {
+        ListaEncadeada _produtos
+        TabelaHash _indice por codigo
+        ArvoreBusca _por_nome por nome+codigo
+        array _por_preco via merge_sort
+        +consultar() buscar_prefixo() faixa_de_preco() vencidos()
+    }
+    class Produto {
+        codigo nome categoria artesao preco_centavos
+        ListaOrdenada lotes por validade
+    }
+    class Lote {
+        quantidade
+        validade
+    }
+    class FilaDePedidos {
+        Fila FIFO ou ListaOrdenada por prioridade
+        Pilha _devolvidos
+    }
+    class Pedido {
+        id codigo quantidade
+        prioridade cliente status
+    }
+    class Operacao {
+        tipo dados descricao
+    }
+    Loja *-- Estoque
+    Loja *-- FilaDePedidos
+    Loja *-- "*" Operacao : historico (Pilha)
+    Estoque o-- "*" Produto
+    Produto *-- "*" Lote
+    FilaDePedidos o-- "*" Pedido
+```
+
+| Entidade / necessidade | Estrutura | Por quê | Complexidade |
+|---|---|---|---|
+| Estoque (cadastro de produtos) | `ListaEncadeada` | Cresce sem tamanho prévio; varredura completa (relatórios, vencidos) | inserir O(1); remover O(n) |
+| Índice de estoque pelo código | `TabelaHash` | O caso mais comum é "me dá o produto X" | O(1) médio |
+| Busca por nome e prefixo | `ArvoreBusca` com chave (nome, código) | Mantém os nomes em ordem: prefixo = intervalo de chaves | O(h + k) |
+| Busca por faixa de preço | busca binária (`limite_inferior`) no catálogo ordenado por `merge_sort` | Duas buscas binárias delimitam a faixa | O(log n + k); refazer o catálogo O(n log n) |
+| Saída por validade | `ListaOrdenada` de lotes (inserção ordenada) | O lote que vence antes fica na frente (FEFO); sem validade vai para o fim | entrada O(L); saída O(1) por lote |
+| Pedidos / requisições | `Fila` (FIFO) ou `ListaOrdenada` por (−prioridade, chegada) | Ordem de chegada, ou prioridade com empate por chegada | FIFO O(1); prioridade O(n) por entrada |
+| Histórico (desfazer) | `Pilha` de `Operacao` | Desfaz sempre a última: LIFO | O(1) + custo do inverso |
+
+**Usar na aplicação** (a `Loja` é a fachada; todo método que muda o estado é desfazível):
+
+```python
+from datetime import date
+from dominio import Loja
+
+loja = Loja(prioridade=True)
+loja.cadastrar("DOC-01", "Doce de caju", categoria="alimento", artesao="Seu Zé", preco_centavos=1500)
+loja.entrada("DOC-01", 10, validade=date(2027, 1, 25))
+pedido = loja.registrar_pedido("DOC-01", 3, prioridade=2, cliente="Ana")
+loja.processar_proximo(hoje=date.today())   # saída FEFO; recusa se faltar (tudo ou nada)
+loja.estoque.buscar_prefixo("doce")         # árvore
+loja.estoque.faixa_de_preco(1000, 5000)     # busca binária, em centavos
+loja.desfazer()                              # devolve o estoque e recoloca o pedido na fila
+```
+
+```bash
+python -m dominio.demo                      # roteiro da apresentação: cadastro → lotes → pedidos → desfazer
+pytest tests/test_dominio.py                # casos simples + volumes sintéticos (100, 1.000, 10.000)
+python -m dominio.benchmark                 # gera evidencias/aed/benchmark_dominio.md
+```
+
+Detalhes que valem explicar:
+- **Desfazer exato:** o teste `test_desfazer_volta_exatamente_cada_estado` faz 14 operações e
+  desfaz uma a uma, conferindo que o estado volta igual ao de antes de cada passo.
+- **Cancelar pedido é O(1)** por remoção preguiçosa: o pedido é marcado e `proximo()` pula os
+  cancelados, porque tirar do meio de uma fila encadeada seria O(n).
+- **Desfazer um atendimento** recoloca o pedido na frente da FIFO através de uma `Pilha` de
+  devolvidos, consultada antes da fila. Como o desfazer é LIFO, vários pedidos devolvidos voltam
+  a sair na ordem original.
+
+**Benchmark** ([`evidencias/aed/benchmark_dominio.md`](evidencias/aed/benchmark_dominio.md)):
+dados sintéticos com semente fixa, mediana de 5 rodadas, `python:3.12-slim` no Docker Desktop
+(i5-1035G1, 8 CPUs). Tempo por operação:
+
+| Operação | n = 1.000 | n = 10.000 | n = 50.000 | Alternativa ingênua (n = 50.000) |
+|---|---:|---:|---:|---:|
+| Consulta por código (hash) | 4,4 µs | 2,2 µs | 2,0 µs | varrer a lista: 2,78 ms (**1.420×**) |
+| Busca por prefixo (árvore) | 9,3 µs | 54 µs | 316 µs | varrer e filtrar: 12,5 ms (40×) |
+| Faixa de preço (busca binária) | 7,9 µs | 18 µs | 40 µs | varrer e filtrar: 3,7 ms (93×) |
+| Refazer o catálogo por preço | 9,6 ms | 119 ms | 794 ms | — |
+| Fila de 5.000 pedidos (entrar + sair) | FIFO 3,0 µs | | | prioridade: 102 µs (34× mais lenta) |
+
+Leitura dos números:
+- **A hash não depende de n** (2 µs com mil ou 50 mil); a varredura cresce linear, por isso a
+  vantagem vai de 9× a 1.420×.
+- **Prefixo cresce com n** porque é O(h + k): com 50 mil produtos, "vaso 1" casa com centenas de
+  nomes (k grande). A altura da árvore (22 → 31 → 37) fica perto de 2,4·log₂ n, o esperado para
+  chaves aleatórias. Chaves que chegassem em ordem a degenerariam (ver a observação do painel).
+- **Onde não ganha:** o catálogo por preço custa 794 ms para refazer com 50 mil produtos. Vale
+  quando há muitas consultas entre mudanças de preço; se o preço mudasse a cada venda, uma
+  `ArvoreBusca` por preço (atualização O(h)) seria a escolha. A fila com prioridade é 34× mais
+  lenta que a FIFO porque cada entrada percorre os pedidos de prioridade maior ou igual (O(n)).
+  Um heap faria O(log n), mas o volume de pedidos simultâneos de uma loja pequena não justifica.
+
+### Estruturas, ordenação e busca
 
 **Regra:** classes com nós encadeados e blocos de tamanho fixo `[None] * n` como
 array. Nas partes avaliadas não usamos `list.append/pop/sort`, `dict`, `set`,
@@ -370,7 +485,8 @@ array. Nas partes avaliadas não usamos `list.append/pop/sort`, `dict`, `set`,
 | Top-K | `estruturas/top_k.py` (usado em `recomendacoes/calculo.py` e `monitor/coletor.py`) | Top-10 entre ~2000 candidatos sem ordenar todos; top 5 de CPU no monitor | O(n·k) pior, ~O(n) na prática | `pronto` |
 | Merge sort | `estruturas/ordenacao.py` (usado em `monitor/coletor.py`) | Processos por nome; containers por serviço; estável (empates mantêm a ordem de PID) | O(n log n); memória O(n) | `pronto` |
 | Quick sort | `estruturas/ordenacao.py` (usado em `monitor/coletor.py`) | Processos por CPU/memória; latências da janela para o p95 do nível 3; pivô mediana de três | O(n log n) médio | `pronto` |
-| Busca sequencial / binária | `estruturas/busca.py` (binária usada em `monitor/coletor.py`) | Binária acha no histórico a última amostra que o navegador já tem (polling incremental) | O(n) / O(log n) | `pronto` |
+| Lista ordenada (inserção ordenada) | `estruturas/lista_ordenada.py` (usada em `dominio/`) | Lotes por validade (FEFO) e fila de pedidos com prioridade | inserir O(n), O(1) se vier em ordem; tirar o menor O(1) | `pronto` |
+| Busca sequencial / binária | `estruturas/busca.py` (binária usada em `monitor/coletor.py`; `limite_inferior` em `dominio/estoque.py`) | Binária acha no histórico a última amostra que o navegador já tem (polling incremental) | O(n) / O(log n) | `pronto` |
 
 `pronto` = implementado, testado e em uso. Todas aparecem rodando no [painel](#painel-do-monitor-aed--infra).
 
