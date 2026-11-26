@@ -28,6 +28,10 @@ class ErroEstoque(Exception):
     pass
 
 
+class ProdutoInexistente(ErroEstoque):
+    pass
+
+
 class Lote:
     __slots__ = ("quantidade", "validade")
 
@@ -141,7 +145,7 @@ class Estoque:
         """Índice por hash: O(1) médio."""
         produto = self._indice.obter(codigo, None)
         if produto is None:
-            raise ErroEstoque(f"produto {codigo} não existe")
+            raise ProdutoInexistente(f"produto {codigo} não existe")
         return produto
 
     def existe(self, codigo):
@@ -152,7 +156,7 @@ class Estoque:
         for produto in self._produtos:
             if produto.codigo == codigo:
                 return produto
-        raise ErroEstoque(f"produto {codigo} não existe")
+        raise ProdutoInexistente(f"produto {codigo} não existe")
 
     def buscar_nome(self, nome):
         """Produtos com esse nome exato (sem diferenciar maiúsculas). Árvore: O(h + k)."""

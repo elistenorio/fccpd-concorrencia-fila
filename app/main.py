@@ -4,6 +4,7 @@ import uuid
 from fastapi import BackgroundTasks, FastAPI, HTTPException, Depends, Query, Response
 from sqlalchemy.orm import Session
 from app.database import engine, get_db
+from app.estoque_rotas import roteador as estoque_roteador
 from app.models import Produto, Pedido, criar_e_migrar
 from app.queue import tentar_publicar_pedido
 from app.recomendacoes_cliente import buscar_recomendacoes
@@ -17,6 +18,8 @@ from app.schemas import (
 criar_e_migrar(engine)
 
 app = FastAPI()
+# Modelo de domínio de AED (dominio/) exposto em /estoque: ver app/estoque_rotas.py.
+app.include_router(estoque_roteador)
 logger = logging.getLogger("uvicorn.error")
 
 @app.get("/")

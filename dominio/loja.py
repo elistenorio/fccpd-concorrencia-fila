@@ -24,9 +24,9 @@ preciso para revertê-la; desfazer() desempilha a última e aplica o inverso.
 | processar_proximo  | devolve o estoque (se atendeu) e recoloca o pedido na fila |
 """
 
-from dominio.estoque import ErroEstoque, Estoque, Produto
+from dominio.estoque import ErroEstoque, Estoque, Produto, ProdutoInexistente
 from dominio.pedidos import ATENDIDO, RECUSADO, FilaDePedidos, Pedido
-from estruturas import Pilha
+from estruturas import Pilha, TabelaHash
 
 
 class Operacao:
@@ -46,6 +46,7 @@ class Loja:
         self.estoque = Estoque()
         self.pedidos = FilaDePedidos(prioridade=prioridade)
         self.historico = Pilha()
+        self._pedidos = TabelaHash()  # id -> Pedido (todos, de qualquer status)
         self._proximo_id = 1
 
     # ------------------------------------------------------------ estoque
@@ -78,11 +79,19 @@ class Loja:
 
     def registrar_pedido(self, codigo, quantidade, prioridade=0, cliente=None):
         if not self.estoque.existe(codigo):
-            raise ErroEstoque(f"produto {codigo} não existe")
+            raise ProdutoInexistente(f"produto {codigo} não existe")
         pedido = Pedido(self._proximo_id, codigo, quantidade, prioridade, cliente)
         self._proximo_id += 1
+        self._pedidos[pedido.id] = pedido
         self.pedidos.entrar(pedido)
         self._registrar("registrar_pedido", (pedido,), f"pedido {pedido.id}: {quantidade} de {codigo}")
+        return pedido
+
+    def pedido(self, id_):
+        """Pedido pelo id (hash, O(1) médio)."""
+        pedido = self._pedidos.obter(id_, None)
+        if pedido is None:
+            raise ErroEstoque(f"pedido {id_} não existe")
         return pedido
 
     def cancelar_pedido(self, pedido):

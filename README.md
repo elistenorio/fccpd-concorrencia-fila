@@ -430,9 +430,36 @@ loja.desfazer()                              # devolve o estoque e recoloca o pe
 
 ```bash
 python -m dominio.demo                      # roteiro da apresentação: cadastro → lotes → pedidos → desfazer
-pytest tests/test_dominio.py                # casos simples + volumes sintéticos (100, 1.000, 10.000)
+pytest tests/test_dominio.py tests/test_estoque_api.py   # domínio + rotas /estoque
 python -m dominio.benchmark                 # gera evidencias/aed/benchmark_dominio.md
 ```
+
+**Exposto na api** ([`app/estoque_rotas.py`](app/estoque_rotas.py), documentação interativa em
+`http://localhost:8000/docs`, grupo "estoque (AED)"):
+
+| Rota | Estrutura por trás |
+|---|---|
+| `POST /estoque/importar` | copia o catálogo do Postgres (`ORI-<id>`, estoque atual vira um lote sem validade) |
+| `POST /estoque/produtos` · `GET` / `DELETE /estoque/produtos/{codigo}` · `PATCH .../preco` | lista + hash + árvore |
+| `POST /estoque/produtos/{codigo}/lotes` · `POST .../saida` | lista ordenada por validade (FEFO); 409 se faltar |
+| `GET /estoque/busca?prefixo=` · `GET /estoque/faixa-preco?minimo=&maximo=` · `GET /estoque/vencidos` | árvore · busca binária · lista ordenada |
+| `POST /estoque/pedidos` · `GET /estoque/pedidos` · `GET` / `DELETE /estoque/pedidos/{id}` · `POST /estoque/pedidos/processar` | fila (prioridade) + hash por id |
+| `POST /estoque/desfazer` · `GET /estoque/historico` | pilha |
+| `GET /estoque` · `POST /estoque/reiniciar?prioridade=` | resumo · loja nova |
+
+```bash
+curl -X POST localhost:8000/estoque/importar
+curl "localhost:8000/estoque/busca?prefixo=pe&limite=3"
+curl -X POST localhost:8000/estoque/pedidos -H "Content-Type: application/json" -d '{"codigo": "ORI-2", "quantidade": 1, "prioridade": 2}'
+curl -X POST localhost:8000/estoque/pedidos/processar
+curl -X POST localhost:8000/estoque/desfazer
+```
+
+O estado fica em memória na api (o checkout da Parte 1 continua no Postgres). As rotas são
+`def`, então o FastAPI as roda em várias threads; como as estruturas próprias não são
+thread-safe, todas passam pelo mesmo `Lock`. O teste
+`test_requisicoes_simultaneas_nao_perdem_pedidos` dispara 400 pedidos em 16 threads e confere
+que nenhum se perde. Testes: [`tests/test_estoque_api.py`](tests/test_estoque_api.py) (sem Postgres).
 
 Detalhes que valem explicar:
 - **Desfazer exato:** o teste `test_desfazer_volta_exatamente_cada_estado` faz 14 operações e

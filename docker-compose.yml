@@ -41,6 +41,8 @@ services:
       - "8000:8000"
     volumes:
       - ./app:/code/app
+      - ./estruturas:/code/estruturas
+      - ./dominio:/code/dominio
     # A api é dona do schema de produtos/pedidos (cria e migra ao subir); o
     # healthy indica que isso terminou e libera quem depende dessas tabelas.
     healthcheck:
