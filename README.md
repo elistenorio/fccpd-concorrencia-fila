@@ -24,7 +24,8 @@ curl -X POST "http://localhost:8001/recomendacoes/recalcular?modo=processos"
 ```
 
 Sobe 9 containers: `postgres`, `redis`, `api` (`:8000`), 3 réplicas de
-`worker`, `reconciliador`, `recomendacoes` (`:8001`) e `monitor` (`:8002`, o [painel](#painel-do-monitor-aed--infra)). O seed cria 2000
+`worker`, `reconciliador`, `recomendacoes` (`:8001`) e `monitor` (`:8002`, o [painel](#painel-do-monitor-aed--infra) em 3 níveis).
+Todos têm `mem_limit`. Containers que já existiam só pegam os limites ao serem recriados (`docker compose up -d`). O seed cria 2000
 produtos, 10 mil clientes e 80 mil pedidos (apaga tudo, menos o produto 1 dos testes).
 
 ## Endpoints
@@ -63,7 +64,10 @@ flowchart LR
         recon["reconciliador"]
         redis[("Redis<br/>fila 'pedidos'")]
         pg[("PostgreSQL")]
+        mon["monitor :8002<br/>coletor (threads) + painel 3 níveis"]
     end
+    dsock[["docker.sock (ro)"]]
+    navegador([Navegador])
 
     cliente -- "POST /pedidos<br/>GET /produtos/{id}" --> api
     admin -- "POST /recomendacoes/recalcular" --> rec
@@ -75,9 +79,16 @@ flowchart LR
     worker -- "marca processado" --> pg
     recon -- "lê pendentes" --> pg
     rec -- "lê pedidos e produtos<br/>grava recomendacoes" --> pg
+    mon -.->|"sonda HTTP"| api
+    mon -.->|"sonda HTTP"| rec
+    mon -.->|"PING (RESP)"| redis
+    mon -.->|"SSLRequest"| pg
+    mon -.->|"inspect, stats, /events"| dsock
+    navegador -- "GET /api/monitor" --> mon
 ```
 
 Setas grossas: comunicação entre serviços (uma síncrona, uma assíncrona). Setas finas: acesso ao banco e à fila.
+Pontilhadas: monitoramento (PI3), que só observa; o `/proc` da máquina chega ao monitor via `pid: host`.
 
 ### Por que cada serviço é separado
 
@@ -352,13 +363,13 @@ array. Nas partes avaliadas não usamos `list.append/pop/sort`, `dict`, `set`,
 | Lista encadeada | `estruturas/lista.py` (usada em `ordenacao.py` e `monitor/coletor.py`) | Copiar entrada de tamanho desconhecido numa passada (ex.: a varredura do `/proc`) | início/fim O(1); busca O(n) | `pronto` |
 | Pilha | `estruturas/pilha.py` (usada em `arvore_busca.py`) | Percorrer a árvore sem recursão (evita estouro no caso degenerado) | O(1) | `pronto` |
 | Fila | `estruturas/fila.py` (usada em `monitor/coletor.py`) | FIFO sem limite; feed de eventos do monitor | O(1) | `pronto` |
-| Fila circular | `estruturas/fila_circular.py` (usada em `concorrencia/buffer.py` e `monitor/coletor.py`) | Buffer do produtor-consumidor e histórico das últimas 120 amostras, com memória fixa | O(1); memória O(capacidade) | `pronto` |
-| Tabela hash | `estruturas/tabela_hash.py` (usada em `monitor/coletor.py`) | Acesso por chave: estado por PID e histórico por serviço | O(1) médio, O(n) pior; redimensiona em 0,75 | `pronto` |
+| Fila circular | `estruturas/fila_circular.py` (usada em `concorrencia/buffer.py` e `monitor/coletor.py`) | Buffer do produtor-consumidor; históricos de tamanho fixo (sistema, memória por container, últimas 60 latências de cada serviço) | O(1); memória O(capacidade) | `pronto` |
+| Tabela hash | `estruturas/tabela_hash.py` (usada em `monitor/coletor.py`) | Acesso por chave: estado por PID, por container (id) e por sonda; despacho do consumidor por tipo de amostra | O(1) médio, O(n) pior; redimensiona em 0,75 | `pronto` |
 | Árvore binária de busca | `estruturas/arvore_busca.py` (usada em `monitor/coletor.py`) | Eventos por timestamp com consulta por intervalo (`intervalo()`, O(h + k)) | O(h): ~O(log n), O(n) degenerada | `pronto` |
 | Insertion / selection sort | `estruturas/ordenacao.py` | Base de comparação; insertion também no quick sort (< 16 elementos) | O(n²) (insertion O(n) quase ordenado) | `pronto` |
 | Top-K | `estruturas/top_k.py` (usado em `recomendacoes/calculo.py` e `monitor/coletor.py`) | Top-10 entre ~2000 candidatos sem ordenar todos; top 5 de CPU no monitor | O(n·k) pior, ~O(n) na prática | `pronto` |
-| Merge sort | `estruturas/ordenacao.py` (usado em `monitor/coletor.py`) | Processos por nome; estável (empates mantêm a ordem de PID) | O(n log n); memória O(n) | `pronto` |
-| Quick sort | `estruturas/ordenacao.py` (usado em `monitor/coletor.py`) | Processos por CPU/memória; pivô mediana de três | O(n log n) médio | `pronto` |
+| Merge sort | `estruturas/ordenacao.py` (usado em `monitor/coletor.py`) | Processos por nome; containers por serviço; estável (empates mantêm a ordem de PID) | O(n log n); memória O(n) | `pronto` |
+| Quick sort | `estruturas/ordenacao.py` (usado em `monitor/coletor.py`) | Processos por CPU/memória; latências da janela para o p95 do nível 3; pivô mediana de três | O(n log n) médio | `pronto` |
 | Busca sequencial / binária | `estruturas/busca.py` (binária usada em `monitor/coletor.py`) | Binária acha no histórico a última amostra que o navegador já tem (polling incremental) | O(n) / O(log n) | `pronto` |
 
 `pronto` = implementado, testado e em uso. Todas aparecem rodando no [painel](#painel-do-monitor-aed--infra).
@@ -390,7 +401,7 @@ pytest tests/test_estruturas.py tests/test_ordenacao_busca.py tests/test_monitor
 
 ```bash
 pip install -r requirements-dev.txt
-pytest tests/test_produtor_consumidor.py tests/test_monitor.py
+pytest tests/test_produtor_consumidor.py tests/test_monitor.py tests/test_monitor_niveis.py
 python -m concorrencia.demo_corrida     # mesma carga sem lock x com lock
 ```
 
@@ -404,7 +415,9 @@ recomendações da FCCPD) usamos processos.
 | Condição de corrida com threads | `concorrencia/estatisticas.py`, `concorrencia/demo_corrida.py` | "ler → somar → gravar" não é atômico; o `Lock` torna a seção crítica exclusiva | `pronto` |
 | Condição de corrida no banco | `app/main.py` (`FOR UPDATE`), `test_concorrencia.py --controle-negativo` | Duas compras do último item; sem lock, vende a mais | `pronto` (FCCPD) |
 | Monitor via comandos do SO | `scripts/monitor.sh` | CPU/memória via `top`; RSS, threads e estado via `ps` | `pronto` |
-| Coletor com threads + `/proc` | `monitor/coletor.py` | 2 produtores lendo `/proc` → `BufferLimitado` → 1 consumidor; pausar o consumidor enche o buffer e faz os produtores dormirem | `pronto` |
+| Coletor com threads nos 3 níveis | `monitor/coletor.py` | 5 produtores (`/proc`, processos, API do Docker, eventos do Docker, sondas) → `BufferLimitado` → 1 consumidor, o único que escreve no estado; pausar o consumidor enche o buffer e faz os produtores dormirem | `pronto` |
+| Alertas e eventos de memória | `monitor/coletor.py` | Memória do sistema e de cada container (% do `mem_limit`) acima de 85%, com histerese; evento `oom` do Docker; contador `oom_kill` do kernel (`/proc/vmstat`) | `pronto` |
+| Evitar o OOM Killer | `docker-compose.yml` | `mem_limit` em todos os serviços, com folga de ~2× sobre o pico medido (ex.: recomendacoes 242 MiB com 8 processos → 512m) | `pronto` |
 
 **Demonstração** (3 produtores × 2000 itens, 3 consumidores):
 
@@ -442,17 +455,51 @@ docker compose up -d --build monitor      # http://localhost:8002
 pip install fastapi uvicorn && python -m monitor
 ```
 
-| Aba | O que mostra | Código |
+| Aba | O que mostra | De onde vem |
 |---|---|---|
-| **Monitor ao vivo** | 3 threads do coletor (estado em tempo real), o buffer circular enchendo e esvaziando, CPU/memória, serviços do compose, processos e eventos. **Pausar consumidor** enche o buffer e os produtores aparecem bloqueados em `_nao_cheio` | `monitor/coletor.py` |
+| **1 · Hardware e SO** | CPU total e **por núcleo**, memória, disco, load average, `oom_kill` do kernel, processos (com threads) e as 6 threads do coletor com o buffer circular enchendo e esvaziando. **Pausar consumidor** enche o buffer e os produtores aparecem bloqueados em `_nao_cheio` | `/proc/stat`, `/proc/meminfo`, `/proc/loadavg`, `/proc/vmstat`, `/proc/<pid>/`, `statvfs("/")` |
+| **2 · Containers** | Status e health check, CPU, memória (uso / `mem_limit`), rede ↓↑, PIDs, reinícios, **OOMKilled** e tempo no ar de cada container do projeto | API do Docker pelo `docker.sock` (somente leitura): `inspect`, `stats`, `/events` |
+| **3 · Serviços** | Sonda por serviço a cada 1 s: no ar/fora, latência média, p95, jitter, perda, disponibilidade, tempo no estado atual e a **linha do tempo de eventos** dos 3 níveis | `monitor/sondas.py`: `GET /` (api, recomendacoes), `PING` do RESP (Redis), `SSLRequest` (Postgres) |
 | **Condição de corrida** | A `demo_corrida` sem e com lock, com o gráfico de itens retirados × contados (a área entre as linhas são as atualizações perdidas) | `monitor/corrida.py` |
 | **Estruturas (AED)** | Laboratório: cada botão chama o método real (lista, pilha, fila, fila circular, hash, árvore, top-K) e desenha os nós que estão na memória; ordenação conta comparações dos 4 algoritmos; busca anima os índices visitados | `monitor/aed.py` |
 
-Testes: [`tests/test_monitor.py`](tests/test_monitor.py) (laboratório, corrida e o coletor
-pausado enchendo o buffer; o do coletor só roda onde existe `/proc`).
+Cada aba tem link direto (`http://localhost:8002/#containers`, `#servicos`...). Uma faixa
+vermelha no topo lista os alertas ativos em qualquer aba.
 
-O serviço `monitor` usa `pid: host` para que o `/proc` do container mostre os
-processos de todos os containers (api, workers, postgres, redis).
+**Alertas** (viram eventos na linha do tempo e entram na faixa): memória do sistema ou de um
+container ≥ `MONITOR_LIMITE_MEM` (85%) do limite; processo ≥ 80% de CPU; serviço fora do ar;
+latência média ≥ `MONITOR_LIMITE_LATENCIA_MS` (500 ms); OOM. Disparam ao cruzar o limite e só
+rearmam quando o valor volta para baixo dele (histerese), para não repetir a cada amostra.
+
+**Demonstração de OOM:**
+
+```bash
+docker compose --profile demo up estresse-memoria      # aloca 4 MB/s com mem_limit 128m
+docker compose --profile demo rm -f estresse-memoria   # limpa depois
+```
+
+Em ~30 s o painel mostra: barra de memória do container subindo → alerta em 85% → evento
+`oom` do Docker → container `exited` com código 137 (SIGKILL) e OOMKilled = sim (aba 2) →
+`oom_kill` do kernel sobe (aba 1). Medido aqui: alerta em 88,9% (113 de 128 MB) e morte 5 s depois.
+
+**Queda de serviço:** `docker compose stop recomendacoes` → a sonda falha ("sem resposta
+em 1,5 s": o DNS do Docker para um container parado demora ~7 s, por isso cada sonda roda numa
+thread com prazo), evento "caiu", perda sobe; `docker compose start recomendacoes` → "voltou
+depois de N s fora do ar".
+
+Testes: [`tests/test_monitor.py`](tests/test_monitor.py) (laboratório, corrida e o coletor
+pausado enchendo o buffer; o do coletor só roda onde existe `/proc`) e
+[`tests/test_monitor_niveis.py`](tests/test_monitor_niveis.py) (níveis 2 e 3 com um Docker
+falso, alertas com histerese, latência/p95/jitter/perda e sondas contra servidores locais).
+
+Por que o serviço `monitor` tem acessos especiais (`docker-compose.yml`):
+
+- `pid: host`: o `/proc` do container mostra os processos da máquina inteira, então o nível 1
+  enxerga api, workers, postgres e redis. **No Docker Desktop (Windows/macOS) "a máquina" é a
+  VM Linux do WSL2**, não o Windows: CPU, memória e disco do nível 1 são os dessa VM.
+- `/var/run/docker.sock:ro`: o nível 2 precisa da API do Docker. O monitor só faz `GET`
+  (listar, inspecionar, estatísticas, eventos) e filtra pelo projeto do Compose, então os
+  containers de outros projetos da máquina não aparecem.
 
 **Observação de AED medida no próprio painel:** os eventos entram na
 `ArvoreBusca` com timestamp crescente, então ela degenera (altura = nº de
