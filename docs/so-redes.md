@@ -250,7 +250,6 @@ de 2×. Câmbio: R$ 5,87 (fechamento de 18/11/2026).
 | Custo (R$/mês) | **~R$ 153** | **~R$ 346** | **~R$ 869** |
 | Banco | Container `postgres` com volume; snapshot diário da VM | Gerenciado: backup automático, dado separado da computação | Gerenciado HA: réplica em outra zona, failover automático |
 | Ponto único de falha | A VM inteira | A VM de aplicação | Nenhum na aplicação; o balanceador é gerenciado |
-| Alternativa mais barata | Oracle Cloud Always Free (Ampere A1, R$ 0). Risco real: a Oracle reduziu o limite gratuito à metade em junho/2026 (para 2 OCPU / 12 GB). Serve para demo, não para a loja | — | — |
 
 **Quando passar para o próximo cenário** (gatilhos lidos no próprio painel do monitor, sustentados por 15 min):
 - p95 da sonda da `api` acima de 300 ms (requisito R1), ou perda acima de 0% (aba 3);
@@ -284,7 +283,5 @@ voltar para a tag anterior. Falta só a conta na nuvem para ligar esse passo.
 Fontes dos preços: [Lightsail bundles (AWS)](https://docs.aws.amazon.com/lightsail/latest/userguide/amazon-lightsail-bundles.html),
 [FAQ de cobrança do Lightsail (banco a partir de US$ 15)](https://docs.aws.amazon.com/lightsail/latest/userguide/amazon-lightsail-frequently-asked-questions-faq-billing-and-account-management.html),
 [FAQ do Lightsail (balanceador US$ 18)](https://aws.amazon.com/lightsail/faq/),
-[Lightsail em São Paulo (jun/2026)](https://aws.amazon.com/pt/about-aws/whats-new/2026/06/amazon-lightsail-aws-regions/),
-[Oracle Always Free](https://docs.oracle.com/iaas/Content/FreeTier/resourceref.htm) e
-[corte do limite gratuito (InfoQ, jul/2026)](https://infoq.com/news/2026/07/oracle-cloud-free-tier-limits/),
+[Lightsail em São Paulo (jun/2026)](https://aws.amazon.com/pt/about-aws/whats-new/2026/06/amazon-lightsail-aws-regions/) e
 [câmbio em 18/11/2026](https://brasil61.com/n/dolar-fecha-em-alta-de-1-45-e-chega-a-r-5-87-bras2617492.amp).
