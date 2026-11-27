@@ -48,6 +48,11 @@ class TabelaHash:
     def __len__(self):
         return self._tamanho
 
+    @property
+    def capacidade(self) -> int:
+        """Número de baldes (dobra quando o fator de carga passa de 0.75)."""
+        return self._capacidade
+
     def __contains__(self, chave):
         return self.contem(chave)
 

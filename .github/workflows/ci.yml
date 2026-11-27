@@ -3,15 +3,16 @@ name: CI
 on:
   push:
   pull_request:
+  workflow_dispatch:  # botão "Run workflow" na aba Actions
 
 jobs:
   testes:
     name: Testes unitários
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
 
@@ -32,9 +33,9 @@ jobs:
     needs: testes
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
 
@@ -50,6 +51,14 @@ jobs:
       - name: Recálculo das recomendações em modo paralelo
         run: curl -fsS -X POST "http://127.0.0.1:8001/recomendacoes/recalcular?modo=processos"
 
+      - name: Modelo de domínio de AED exposto na api (/estoque)
+        run: |
+          curl -fsS -X POST http://127.0.0.1:8000/estoque/importar
+          curl -fsS "http://127.0.0.1:8000/estoque/busca?prefixo=pe&limite=1"
+          curl -fsS -X POST http://127.0.0.1:8000/estoque/pedidos -H "Content-Type: application/json" -d '{"codigo": "ORI-2", "quantidade": 1}'
+          curl -fsS -X POST http://127.0.0.1:8000/estoque/pedidos/processar
+          curl -fsS -X POST http://127.0.0.1:8000/estoque/desfazer
+
       - name: Teste de concorrência do checkout (Parte 1)
         run: python test_concorrencia.py
 
@@ -58,7 +67,7 @@ jobs:
 
       - name: Guardar a evidência gerada
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: evidencia-comunicacao
           path: evidencias/u2/comunicacao.txt

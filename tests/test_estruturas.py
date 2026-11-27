@@ -181,6 +181,38 @@ def test_arvore_degenera_com_chaves_ordenadas():
     assert aleatoria.altura() < 50  # ~ 2 a 3 vezes log2(1000) ≈ 10
 
 
+@pytest.mark.parametrize("inicio,fim", [(10, 20), (-5, 3), (195, 300), (50, 50), (60, 40), (0.5, 0.7)])
+def test_arvore_intervalo(inicio, fim):
+    arvore = ArvoreBusca()
+    chaves = list(range(200))
+    random.Random(7).shuffle(chaves)
+    for c in chaves:
+        arvore.inserir(c, c * 10)
+    esperado = [(c, c * 10) for c in range(200) if inicio <= c <= fim]
+    assert list(arvore.intervalo(inicio, fim)) == esperado
+
+
+def test_arvore_intervalo_com_chaves_tupla():
+    # O monitor usa (timestamp, sequência) como chave dos eventos.
+    arvore = ArvoreBusca()
+    for seq, ts in enumerate((1.0, 2.0, 2.0, 3.0)):
+        arvore.inserir((ts, seq), seq)
+    assert [v for _, v in arvore.intervalo((2.0, 0), (2.0, float("inf")))] == [1, 2]
+    assert list(ArvoreBusca().intervalo(0, 10)) == []
+
+
+def test_arvore_intervalo_acima_de_todas_as_chaves():
+    # Regressão: com tudo < inicio, o percurso só desce à direita e a pilha
+    # ficava vazia -> IndexError (500 no /estoque/busca e no /api/monitor quando
+    # todos os eventos ficavam mais velhos que a janela).
+    for chaves in ([1, 2, 3], [3, 2, 1], [2, 1, 3]):
+        arvore = ArvoreBusca()
+        for c in chaves:
+            arvore.inserir(c)
+        assert list(arvore.intervalo(10, 20)) == []
+        assert [c for c, _ in arvore.intervalo(3, 20)] == [3]
+
+
 # --- Top-K ---
 
 def test_top_k_igual_a_ordenar_e_cortar():

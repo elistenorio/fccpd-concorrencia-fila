@@ -39,6 +39,11 @@ class FilaCircular:
     def capacidade(self) -> int:
         return self._capacidade
 
+    @property
+    def inicio(self) -> int:
+        """Índice do array onde está o mais antigo (para visualizar o anel)."""
+        return self._inicio
+
     def vazia(self) -> bool:
         return self._tamanho == 0
 

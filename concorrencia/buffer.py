@@ -37,6 +37,21 @@ class BufferLimitado:
     def capacidade(self) -> int:
         return self._fila.capacidade
 
+    def retrato(self):
+        """Cópia consistente (sob o lock) das posições do buffer, para o painel do monitor.
+
+        Devolve (posicoes, inicio, tamanho): posicoes é um array de tamanho
+        capacidade com None nas vazias; inicio é o índice do mais antigo.
+        """
+        with self._lock:
+            capacidade = self._fila.capacidade
+            posicoes = [None] * capacidade
+            i = 0
+            for item in self._fila:
+                posicoes[(self._fila.inicio + i) % capacidade] = item
+                i += 1
+            return posicoes, self._fila.inicio, len(self._fila)
+
     def colocar(self, item, timeout: float | None = None):
         """Bloqueia enquanto o buffer estiver cheio. TimeoutError se passar do timeout."""
         with self._nao_cheio:

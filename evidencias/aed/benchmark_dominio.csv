@@ -1,0 +1,19 @@
+n,teste,estrutura,us_por_op,alternativa,us_por_op_alternativa
+1000,A consulta por código,TabelaHash,4.366,varredura da lista,38.068
+1000,B busca por prefixo,ArvoreBusca (altura 22),9.275,varredura + filtro,199.536
+1000,C faixa de preço (±500),busca binária,7.891,varredura + filtro,110.943
+1000,C' refazer catálogo,merge_sort ×2,9620.133,—,
+1000,D 1000 lotes por validade,chegando em ordem,3.670,ordem aleatória,27.394
+1000,E 1000 pedidos (entrar + sair),Fila FIFO,4.012,ListaOrdenada (prioridade),23.905
+10000,A consulta por código,TabelaHash,2.175,varredura da lista,536.401
+10000,B busca por prefixo,ArvoreBusca (altura 31),54.345,varredura + filtro,1861.209
+10000,C faixa de preço (±500),busca binária,17.883,varredura + filtro,1223.909
+10000,C' refazer catálogo,merge_sort ×2,119081.253,—,
+10000,D 2000 lotes por validade,chegando em ordem,2.337,ordem aleatória,34.186
+10000,E 5000 pedidos (entrar + sair),Fila FIFO,3.261,ListaOrdenada (prioridade),117.082
+50000,A consulta por código,TabelaHash,1.957,varredura da lista,2778.958
+50000,B busca por prefixo,ArvoreBusca (altura 37),315.735,varredura + filtro,12514.844
+50000,C faixa de preço (±500),busca binária,39.525,varredura + filtro,3685.908
+50000,C' refazer catálogo,merge_sort ×2,793900.273,—,
+50000,D 2000 lotes por validade,chegando em ordem,3.163,ordem aleatória,37.976
+50000,E 5000 pedidos (entrar + sair),Fila FIFO,3.016,ListaOrdenada (prioridade),102.141

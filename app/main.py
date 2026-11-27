@@ -4,6 +4,7 @@ import uuid
 from fastapi import BackgroundTasks, FastAPI, HTTPException, Depends, Query, Response
 from sqlalchemy.orm import Session
 from app.database import engine, get_db
+from app.estoque_rotas import roteador as estoque_roteador
 from app.models import Produto, Pedido, criar_e_migrar
 from app.queue import tentar_publicar_pedido
 from app.recomendacoes_cliente import buscar_recomendacoes
@@ -17,6 +18,8 @@ from app.schemas import (
 criar_e_migrar(engine)
 
 app = FastAPI()
+# Modelo de domínio de AED (dominio/) exposto em /estoque: ver app/estoque_rotas.py.
+app.include_router(estoque_roteador)
 logger = logging.getLogger("uvicorn.error")
 
 @app.get("/")
@@ -89,6 +92,14 @@ def consultar_produto(
     produto = db.get(Produto, produto_id)
     if produto is None:
         raise HTTPException(status_code=404, detail="Produto não encontrado")
+    dados = ProdutoResponse(
+        id=produto.id, nome=produto.nome, estoque=produto.estoque, categoria=produto.categoria,
+        artesao=produto.artesao, recomendacoes_disponiveis=False, recomendacoes=[],
+    )
+    # Devolve a conexão ao pool ANTES da chamada HTTP ao serviço de
+    # recomendações (até 1 s). Segurá-la durante a chamada esgotava o pool com
+    # 100 usuários simultâneos: 96% de perda no benchmark de rede.
+    db.close()
 
     # Id curto que viaja no header X-Request-ID e aparece no log dos dois
     # serviços, ligando a chamada da api à resposta das recomendações.
@@ -96,15 +107,9 @@ def consultar_produto(
     response.headers["X-Request-ID"] = request_id
     recomendacoes = buscar_recomendacoes(produto_id, limite, request_id)
 
-    return ProdutoResponse(
-        id=produto.id,
-        nome=produto.nome,
-        estoque=produto.estoque,
-        categoria=produto.categoria,
-        artesao=produto.artesao,
-        recomendacoes_disponiveis=recomendacoes is not None,
-        recomendacoes=recomendacoes or [],
-    )
+    dados.recomendacoes_disponiveis = recomendacoes is not None
+    dados.recomendacoes = recomendacoes or []
+    return dados
 
 
 @app.get("/pedidos/{pedido_id}", response_model=PedidoStatusResponse)
