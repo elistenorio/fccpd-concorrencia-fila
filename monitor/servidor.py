@@ -20,6 +20,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Query
+from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -47,6 +48,9 @@ async def ciclo_de_vida(_app):
 
 
 app = FastAPI(title="Origem — monitor e laboratório", lifespan=ciclo_de_vida)
+# O painel pede /api/monitor a cada 1 s: sem compressão eram ~78 kB/s por
+# pessoa olhando (medido; ver docs/so-redes.md). JSON repetitivo comprime muito bem.
+app.add_middleware(GZipMiddleware, minimum_size=1024)
 
 
 @app.middleware("http")
