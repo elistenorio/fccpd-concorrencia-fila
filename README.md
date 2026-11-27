@@ -528,6 +528,9 @@ pytest tests/test_estruturas.py tests/test_ordenacao_busca.py tests/test_monitor
 
 ## Infraestrutura de Software
 
+**Topologia, requisitos de rede, protocolos, benchmark de latência/vazão/perda/jitter e plano de
+implantação em 3 cenários com orçamento:** [`docs/so-redes.md`](docs/so-redes.md).
+
 <details>
 <summary><b>Clique para ver a parte de Infraestrutura de Software</b> — threads, sincronização, condição de corrida e monitor (<code>concorrencia/</code>, <code>monitor/</code>, <code>scripts/</code>)</summary>
 
